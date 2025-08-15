@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>E350 Full Controller</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<header>
+  <h1>E350 Full Controller</h1>
+  <div class="mode">
+    <button id="btnModeRS">RS485</button>
+    <button id="btnModeIO">I/O</button>
+<button id="btnRestart">Перезапуск</button>
+<button id="btnFaultReset">Сброс Fault</button>
+
+    <span id="modeText" class="pill">—</span>
+    <span id="faultText" class="pill">—</span>
+
+
+  </div>
+</header>
+
+<main>
+ <section class="grid">
+
+    <div class="card">
+      <h2>Вирт. DI</h2>
+      <div class="row">
+        <button data-di="0">DI1 Tighten</button>
+        <button data-di="1">DI2 Loosen</button>
+        <button data-di="2">DI3 Enable</button>
+        <button data-di="3">DI4 Free</button>
+      </div>
+      <div class="row">
+        <button data-di="4">DI5 Task0</button>
+        <button data-di="5">DI6 Task1</button>
+        <button data-di="6">DI7</button>
+        <button data-di="7">DI8</button>
+      </div>
+      <div class="row"><button id="btnClr">Очистить маску</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Free-Run (быстрый)</h2>
+      <div class="row">
+        <label>Скорость RPM</label>
+        <input id="fr2Rpm" type="number" value="300" />
+      </div>
+      <div class="row">
+        <label>Лимит момента (Н·м, опц.)</label>
+        <input id="fr2Tq" type="number" step="0.001" placeholder="0.200" />
+      </div>
+      <div class="row">
+        <button id="fr2Set">Записать</button>
+        <button id="fr2Start">Пуск (DI4)</button>
+        <button id="fr2Stop">Стоп</button>
+      </div>
+      <div class="row small"><code id="fr2Info">—</code></div>
+    </div>
+
+    <div class="card">
+      <h2>Параметры задач</h2>
+      <div class="row">
+        <label>Task</label>
+        <select id="taskSel">
+          <option value="0">Task0</option>
+          <option value="1">Task1</option>
+          <option value="2">Task2</option>
+          <option value="3">Task3</option>
+        </select>
+        <button id="taskLoad">Загрузить</button>
+      </div>
+      <div class="kv">
+        <div>Метод:</div><div>
+          <select id="pMethod">
+            <option value="1">Torque</option>
+            <option value="0">Angle</option>
+          </select>
+        </div>
+        <div>Момент, N·m:</div><div><input id="pTorque" type="number" step="0.001" value="0.200"/></div>
+        <div>Скорость, RPM:</div><div><input id="pSpeed" type="number" value="500"/></div>
+        <div>Угол (deg, опц.):</div><div><input id="pAngle" type="number" value="0"/></div>
+        <div>Время (ms, опц.):</div><div><input id="pTime" type="number" value="0"/></div>
+        <div>Hold при старте (ms):</div><div><input id="pHold" type="number" value="1000"/></div>
+      </div>
+      <div class="row">
+        <button id="taskSave">Сохранить</button>
+        <button id="taskRun">Run Tighten</button>
+      </div>
+    </div>
+  </section>
+<br>
+<br>
+
+<section class="grid">
+
+
+<div class="card">
+  <h2>Лог событий</h2>
+  <div id="log" class="log"></div>
+  <div class="row small">FR_STARTED/FR_STOPPED — по скорости; TIGHTEN_DONE — по Last Result; FAULT_ON/OFF — по 0x20F4.</div>
+</div>
+<div class="card">
+      <h2>Состояние</h2>
+      <div class="kv">
+        <div>Скорость:</div><div><span id="speed">0</span> RPM</div>
+        <div>Текущая задача:</div><div><span id="taskCur">—</span></div>
+        <div>DI:</div><div><code id="di">—</code></div>
+        <div>DO:</div><div><code id="do">—</code></div>
+        <div>AUX:</div><div><code id="auxMask">0x0000</code></div>
+      </div>
+<h3>Последний цикл</h3>
+      <div class="kv">
+        <div>Момент:</div><div><span id="lastTq">0.000</span> N·m</div>
+        <div>Угол:</div><div><span id="lastAng">0.0</span> °</div>
+        <div>Время:</div><div><span id="lastTime">0</span> ms</div>
+        <div>Результат:</div><div><span id="lastRes">—</span></div>
+      </div>
+</div>
+</section>
+
+
+</main>
+
+<footer><span>RS485: E350_PORT, E350_BAUD, E350_UNIT можно задать переменными окружения.</span></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

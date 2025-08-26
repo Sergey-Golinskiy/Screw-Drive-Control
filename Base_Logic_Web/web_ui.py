@@ -212,7 +212,9 @@ def index():
 # ---------------------- Запуск ----------------------
 def main():
     # Запускаем Flask в однопоточном режиме (для предсказуемой работы с GPIO)
-    app.run(host="0.0.0.0", port=8000, debug=False, threaded=False)
+#    app.run(host="0.0.0.0", port=8000, debug=False, threaded=False)
+    app.run(host="0.0.0.0", port=8000, debug=False, threaded=False, use_reloader=False)
+
 
 if __name__ == "__main__":
     try:

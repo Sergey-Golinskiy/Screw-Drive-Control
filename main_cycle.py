@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import RPi.GPIO as GPIO
+import RPi.GPIO as GPIO # type: ignore
 import time
 from datetime import datetime
 import threading

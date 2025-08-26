@@ -129,6 +129,19 @@ class IOController:
         time.sleep(ms/1000.0)
         self.set_relay(relay_name, False)
 
+    # ---- Удобные обёртки для отвёртки ----
+    def screwdriver_free_run(self, on: bool):
+        """DI4 FREE-RUN: держать ON = крутится; OFF = остановка."""
+        self.set_relay("R05_DI4_FREE", on)
+
+    def screwdriver_torque_mode(self, on: bool):
+        """DI1 TORQUE (по моменту): держать ON до подтверждения ОК (датчик добавим позже)."""
+        self.set_relay("R06_DI1_POT", on)
+
+    def screwdriver_select_task0(self, pulse_ms: int = 700):
+        """DI5 TASK0: импульс выбора задачи (700 мс по ТЗ)."""
+        self.pulse("R07_DI5_TSK0", ms=pulse_ms)
+
     # -------- Датчики --------
     def sensor_state(self, sensor_name: str) -> bool:
         """True = CLOSE (LOW), False = OPEN (HIGH)."""

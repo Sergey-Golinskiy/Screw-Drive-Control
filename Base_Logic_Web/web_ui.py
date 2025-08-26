@@ -6,8 +6,8 @@ import threading
 from functools import wraps
 from flask import Flask, request, jsonify, Response
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
-import logging
-logging.getLogger('werkzeug').disabled = True
+#import logging
+#logging.getLogger('werkzeug').disabled = True
 
 # ---------------------- Инициализация железа ----------------------
 io_lock = threading.Lock()

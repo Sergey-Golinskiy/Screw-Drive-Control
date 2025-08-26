@@ -6,6 +6,8 @@ import threading
 from functools import wraps
 from flask import Flask, request, jsonify, Response
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
+import logging
+logging.getLogger('werkzeug').disabled = True
 
 # ---------------------- Инициализация железа ----------------------
 io_lock = threading.Lock()
@@ -20,29 +22,28 @@ def with_io_lock(fn):
             return fn(*args, **kwargs)
     return wrapper
 
-# ---------------------- API ----------------------
-@app.route("/api/status", methods=["GET"])
-@with_io_lock
-def api_status():
-    # реле: словарь имя -> True/False
+def build_status():
     relays = dict(io.relays)
-    # датчики: имя -> True(CLOSE)/False(OPEN)
     sensors = {name: io.sensor_state(name) for name in SENSOR_PINS.keys()}
-    return jsonify({
+    return {
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "relays": relays,
         "sensors": sensors,
         "relay_names": list(RELAY_PINS.keys()),
         "sensor_names": list(SENSOR_PINS.keys()),
-    })
+    }
+
+
+# ---------------------- API ----------------------
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    with io_lock:
+        return jsonify(build_status())
+
+
 
 @app.route("/api/relay", methods=["POST"])
-@with_io_lock
 def api_relay():
-    """
-    JSON:
-    { "name": "R02_C1_UP", "action": "on"|"off"|"pulse", "ms": 150 }
-    """
     try:
         data = request.get_json(force=True)
     except Exception:
@@ -55,17 +56,19 @@ def api_relay():
     if name not in RELAY_PINS:
         return jsonify({"error": f"unknown relay '{name}'"}), 400
 
-    if action == "on":
-        io.set_relay(name, True)
-    elif action == "off":
-        io.set_relay(name, False)
-    elif action == "pulse":
-        io.pulse(name, ms=ms)
-    else:
-        return jsonify({"error": "action must be 'on' | 'off' | 'pulse'"}), 400
+    with io_lock:
+        if action == "on":
+            io.set_relay(name, True)
+        elif action == "off":
+            io.set_relay(name, False)
+        elif action == "pulse":
+            io.pulse(name, ms=ms)
+        else:
+            return jsonify({"error": "action must be 'on' | 'off' | 'pulse'"}), 400
 
-    # вернуть актуальное состояние после команды
-    return api_status()
+        # ВОЗВРАЩАЕМ СТАТУС БЕЗ ВТОРОГО ЛОКА
+        return jsonify(build_status())
+
 
 # Пример спец-команд для отвёртки (если уже добавил шорткаты в cycle_onefile.py):
 # from cycle_onefile import ...

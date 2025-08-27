@@ -266,11 +266,11 @@ def main():
                 break
 
             # 6. Включаем R03_C1_DOWN и держим включённым, пока GER_C1_DOWN не станет CLOSE.
-            io.set_relay("R02_C1_UP", False)
             io.set_relay("R03_C1_DOWN", True)
             ok = wait_sensor(io, "GER_C1_DOWN", True, TIMEOUT_SEC)
             
             if not ok:
+                io.set_relay("R03_C1_DOWN", False)
                 break
 
             # 7. Ждём нажатия педальки PED_START — второе нажатие в этом цикле
@@ -291,7 +291,6 @@ def main():
             if not ok:
                 # === АВАРИЙНАЯ ВЕТКА при отсутствии OK по моменту ===
                 # 10a. Поднимаем основной цилиндр до верха
-                io.set_relay("R03_C1_DOWN", False)
                 io.set_relay("R02_C1_UP", True)
                 ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
                 io.set_relay("R02_C1_UP", False)
@@ -302,9 +301,7 @@ def main():
 
                 # Логично также отключить моментный режим (иначе драйвер будет крутить)
                 io.set_relay("R06_DI1_POT", False)
-                io.set_relay("R03_C1_DOWN", False)
-                io.set_relay("R02_C1_UP", True)
-                ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
+
                 # Переходим к следующему циклу (возврат к п.5)
                 continue
 

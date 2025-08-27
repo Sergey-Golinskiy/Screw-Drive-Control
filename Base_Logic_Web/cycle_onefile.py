@@ -302,7 +302,9 @@ def main():
 
                 # Логично также отключить моментный режим (иначе драйвер будет крутить)
                 io.set_relay("R06_DI1_POT", False)
-
+                io.set_relay("R03_C1_DOWN", False)
+                io.set_relay("R02_C1_UP", True)
+                ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
                 # Переходим к следующему циклу (возврат к п.5)
                 continue
 

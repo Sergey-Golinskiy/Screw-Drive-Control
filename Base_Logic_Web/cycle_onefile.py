@@ -205,76 +205,115 @@ def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout:
             return False
         time.sleep(0.01)
 
+def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) -> bool:
+    """
+    Ждём ИМЕННО НОВОЕ нажатие (OPEN -> CLOSE).
+    Сначала убеждаемся, что педаль отжата (OPEN), затем ждём CLOSE.
+    """
+    start = time.time()
+    # 1) дождаться OPEN (если сейчас уже нажата)
+    while True:
+        if not io.sensor_state(sensor_name):  # OPEN
+            break
+        if timeout is not None and (time.time() - start) > timeout:
+            print(f"[wait_new_press] TIMEOUT: {sensor_name} не вернулась в OPEN")
+            return False
+        time.sleep(0.01)
+
+    # 2) дождаться CLOSE (новое нажатие)
+    start = time.time()
+    while True:
+        if io.sensor_state(sensor_name):  # CLOSE
+            return True
+        if timeout is not None and (time.time() - start) > timeout:
+            print(f"[wait_new_press] TIMEOUT: {sensor_name} не нажата")
+            return False
+        time.sleep(0.01)
+
+
 def main():
     io = IOController()
     try:
         print("=== Старт скрипта ===")
 
-        # ---------- ИНИЦИАЛИЗАЦИЯ ----------
-        # 2. Проверяем GER_C1_UP; если OPEN — включаем R02_C1_UP и ждём CLOSE
+        # ---------------- ИНИЦИАЛИЗАЦИЯ (шаги 2–4) ----------------
+        # 2. Проверяем GER_C1_UP; если OPEN — включаем R02_C1_UP и ждём CLOSE.
         if not io.sensor_state("GER_C1_UP"):  # OPEN
             io.set_relay("R02_C1_UP", True)
             ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
-            io.set_relay("R02_C1_UP", False)  # по достижении выключаем катушку
+            io.set_relay("R02_C1_UP", False)
             if not ok:
                 return
 
-        # Однократно выполнить 5 и 6 при первом запуске:
-        # 5. Включаем R04_C2 и держим, пока GER_C2_DOWN не станет CLOSE
+        # 3. Включаем R04_C2 и держим включённым, пока GER_C2_DOWN не станет CLOSE
         io.set_relay("R04_C2", True)
         ok = wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC)
         if not ok:
             io.set_relay("R04_C2", False)
             return
 
-        # 6. Выключаем R04_C2 и ждём, пока GER_C2_UP станет CLOSE
+        # 4. Выключаем R04_C2 и ждём, пока GER_C2_UP станет CLOSE.
         io.set_relay("R04_C2", False)
         ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
         if not ok:
             return
 
-        # ---------- ОСНОВНОЙ ЦИКЛ (с пункта 3) ----------
+        # ---------------- ОСНОВНОЙ ЦИКЛ (с шага 5) ----------------
         while True:
-            # 3. Импульс на R01_PIT
-            io.pulse("R01_PIT", ms=700)
+            # 5. Ждём нажатия педальки PED_START — первое нажатие в этом цикле
+            ok = wait_new_press(io, "PED_START", None)  # None -> ждать без таймаута
+            if not ok:
+                break
 
-            # Пауза 1 сек перед шагом 4 (если нужно — раскомментируй)
-            # time.sleep(1)
-
-            # 4. Включаем R03_C1_DOWN и держим, пока GER_C1_DOWN не станет CLOSE
+            # 6. Включаем R03_C1_DOWN и держим включённым, пока GER_C1_DOWN не станет CLOSE.
             io.set_relay("R03_C1_DOWN", True)
             ok = wait_sensor(io, "GER_C1_DOWN", True, TIMEOUT_SEC)
             io.set_relay("R03_C1_DOWN", False)
             if not ok:
                 break
 
-            # 5. Включаем R04_C2 и держим, пока GER_C2_DOWN не станет CLOSE
-            io.set_relay("R04_C2", True)
-            ok = wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC)
+            # 7. Ждём нажатия педальки PED_START — второе нажатие в этом цикле
+            ok = wait_new_press(io, "PED_START", None)
             if not ok:
-                io.set_relay("R04_C2", False)
                 break
 
-            # 6. Выключаем R04_C2 и ждём, пока GER_C2_UP станет CLOSE
+            # 8. Даем импульс (700 мс) на R01_PIT
+            io.pulse("R01_PIT", ms=700)
+
+            # 9. Включаем R06_DI1_POT (режим по моменту)
+            io.set_relay("R06_DI1_POT", True)
+
+            # 10. Включаем R04_C2 и держим включённым, пока DO2_OK не станет CLOSE
+            io.set_relay("R04_C2", True)
+            ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
+            if not ok:
+                # На всякий случай выключим перед выходом
+                io.set_relay("R04_C2", False)
+                io.set_relay("R06_DI1_POT", False)
+                break
+
+            # 11. Выключаем R04_C2 и R06_DI1_POT и ждём, пока GER_C2_UP станет CLOSE.
             io.set_relay("R04_C2", False)
+            io.set_relay("R06_DI1_POT", False)
             ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
             if not ok:
                 break
 
-            # 7. Включаем R02_C1_UP и ждём CLOSE по GER_C1_UP
+            # 12. Включаем R02_C1_UP и ждём, пока GER_C1_UP станет CLOSE.
             io.set_relay("R02_C1_UP", True)
             ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
             io.set_relay("R02_C1_UP", False)
             if not ok:
                 break
 
-            # 8. Повторяем с пункта 3 (while True продолжит)
+            # 13. Повторяем с пункта 5 (while True крутит дальше)
 
     except KeyboardInterrupt:
         pass
     finally:
         io.cleanup()
         print("=== Остановлено. GPIO освобождены ===")
+
 
 if __name__ == "__main__":
     main()

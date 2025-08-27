@@ -4,7 +4,7 @@ import json
 import time
 import threading
 from functools import wraps
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response # type: ignore
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 #import logging
 #logging.getLogger('werkzeug').disabled = True

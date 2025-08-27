@@ -299,7 +299,7 @@ def main():
             attempts = 0
             while True:
                 io.pulse("R01_PIT", ms=700)  # п.8
-                if wait_close_pulse(io, "IND_SCRW", window_ms=300):  # п.8.1
+                if wait_close_pulse(io, "IND_SCRW", window_ms=1000):  # п.8.1
                     break
                 attempts += 1
                 if SCREW_FEED_MAX_RETRIES is not None and attempts >= SCREW_FEED_MAX_RETRIES:

@@ -283,16 +283,29 @@ def main():
             # 9. Включаем R06_DI1_POT (режим по моменту)
             io.set_relay("R06_DI1_POT", True)
 
-            # 10. Включаем R04_C2 и держим включённым, пока DO2_OK не станет CLOSE
+            # 10. Включаем R04_C2 и держим до DO2_OK=CLOSE
             io.set_relay("R04_C2", True)
             ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
-            if not ok:
-                # На всякий случай выключим перед выходом
-                io.set_relay("R04_C2", False)
-                io.set_relay("R06_DI1_POT", False)
-                break
 
-            # 11. Выключаем R04_C2 и R06_DI1_POT и ждём, пока GER_C2_UP станет CLOSE.
+            if not ok:
+                # === АВАРИЙНАЯ ВЕТКА при отсутствии OK по моменту ===
+                # 10a. Поднимаем основной цилиндр до верха
+                io.set_relay("R02_C1_UP", True)
+                ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
+                io.set_relay("R02_C1_UP", False)
+
+                # 10b. Поднимаем отвертку: выключаем R04_C2 и ждём верх
+                io.set_relay("R04_C2", False)
+                ok_c2_up = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+
+                # Логично также отключить моментный режим (иначе драйвер будет крутить)
+                io.set_relay("R06_DI1_POT", False)
+
+                # Переходим к следующему циклу (возврат к п.5)
+                continue
+
+            # === НОРМАЛЬНЫЙ ПУТЬ: момент достигнут ===
+            # 11. Выключаем R04_C2 и R06_DI1_POT и ждём, пока GER_C2_UP станет CLOSE
             io.set_relay("R04_C2", False)
             io.set_relay("R06_DI1_POT", False)
             ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)

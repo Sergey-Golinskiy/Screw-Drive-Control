@@ -205,6 +205,19 @@ def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout:
             return False
         time.sleep(0.01)
 
+def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int = 300) -> bool:
+    """
+    Ждём в течение window_ms, что датчик станет CLOSE хотя бы на миг.
+    Возвращает True, если увидели CLOSE; иначе False.
+    """
+    t_end = time.time() + (window_ms / 1000.0)
+    while time.time() < t_end:
+        if io.sensor_state(sensor_name):  # CLOSE
+            return True
+        time.sleep(0.005)  # 5 мс
+    return False
+
+
 def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) -> bool:
     """
     Ждём ИМЕННО НОВОЕ нажатие (OPEN -> CLOSE).
@@ -282,7 +295,19 @@ def main():
                 break
 
             # 8. Даем импульс (700 мс) на R01_PIT
-            io.pulse("R01_PIT", ms=700)
+            SCREW_FEED_MAX_RETRIES = None  # None = без ограничений; можно поставить число (например, 5)
+            attempts = 0
+            while True:
+                io.pulse("R01_PIT", ms=700)  # п.8
+                if wait_close_pulse(io, "IND_SCRW", window_ms=300):  # п.8.1
+                    break
+                attempts += 1
+                if SCREW_FEED_MAX_RETRIES is not None and attempts >= SCREW_FEED_MAX_RETRIES:
+                    print("[feed] Нет импульса IND_SCRW после нескольких попыток")
+                    # при желании можно сделать аварийный выход:
+                    # break из основного цикла или continue к новому циклу — по твоему решению
+                    # сейчас выйдем из основного цикла:
+                    return
 
             # 9. Включаем R06_DI1_POT (режим по моменту)
             io.set_relay("R06_DI1_POT", True)

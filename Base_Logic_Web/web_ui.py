@@ -57,6 +57,21 @@ def wait_sensor(sensor_name: str, target_close: bool, timeout: float | None) -> 
             return False
         time.sleep(0.01)
 
+def wait_close_pulse_ui(sensor_name: str, window_ms: int = 300) -> bool:
+    """
+    Ждём, что датчик станет CLOSE хотя бы на миг в течение window_ms.
+    Учитываем запрос остановки цикла.
+    """
+    t_end = time.time() + (window_ms / 1000.0)
+    while time.time() < t_end:
+        if cycle_stop.is_set():
+            return False
+        if _sensor_state(sensor_name):  # CLOSE
+            return True
+        time.sleep(0.005)
+    return False
+
+
 def wait_new_press(sensor_name: str, timeout: float | None) -> bool:
     """
     Ждём новое нажатие педали: OPEN -> CLOSE.
@@ -129,7 +144,20 @@ def cycle_worker():
                 break
 
             # 8. Импульс на R01_PIT (700 мс)
-            _pulse("R01_PIT", ms=700)
+           #_pulse("R01_PIT", ms=700)
+            SCREW_FEED_MAX_RETRIES = None  # None = без ограничений; можно задать ч
+            attempts = 0
+            while not cycle_stop.is_set():
+                _pulse("R01_PIT", ms=700)  # п.8
+                if wait_close_pulse_ui("IND_SCRW", window_ms=300):  # п.8.1
+                    break
+                attempts += 1
+                if SCREW_FEED_MAX_RETRIES is not None and attempts >= SCREW_FEED_MAX_RETRIES:
+                    print("[cycle] Нет импульса IND_SCRW после нескольких попыток")
+                    # реши, что делать при исчерпании попыток:
+                    # 1) прервать цикл:
+                    return
+                    # 2) или перейти к началу цикла (п.5): break
 
             # 9. Включаем R06_DI1_POT
             _set_relay("R06_DI1_POT", True)

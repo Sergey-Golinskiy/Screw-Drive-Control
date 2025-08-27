@@ -122,7 +122,7 @@ def cycle_worker():
             if not wait_sensor("GER_C1_DOWN", True, TIMEOUT_SEC):
                 _set_relay("R03_C1_DOWN", False)
                 break
-            _set_relay("R03_C1_DOWN", False)
+            #_set_relay("R03_C1_DOWN", False)
 
             # 7. Ждём второе нажатие педали
             if not wait_new_press("PED_START", None):

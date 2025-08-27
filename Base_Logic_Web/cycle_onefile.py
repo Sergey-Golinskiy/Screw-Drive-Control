@@ -266,6 +266,7 @@ def main():
                 break
 
             # 6. Включаем R03_C1_DOWN и держим включённым, пока GER_C1_DOWN не станет CLOSE.
+            io.set_relay("R02_C1_UP", False)
             io.set_relay("R03_C1_DOWN", True)
             ok = wait_sensor(io, "GER_C1_DOWN", True, TIMEOUT_SEC)
             

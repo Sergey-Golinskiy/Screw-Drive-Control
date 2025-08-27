@@ -146,6 +146,9 @@ def cycle_worker():
             _set_relay("R06_DI1_POT", False)
             if not wait_sensor("GER_C2_UP", True, TIMEOUT_SEC):
                 break
+            
+            # 11.1 Включаем R05_DI4_FREE на 100 мс и выключаем
+            _pulse("R05_DI4_FREE", ms=100)
 
             # 12. Поднимаем C1 до GER_C1_UP=CLOSE
             _set_relay("R02_C1_UP", True)

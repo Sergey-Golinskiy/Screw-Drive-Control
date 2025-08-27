@@ -316,6 +316,9 @@ def main():
             if not ok:
                 break
 
+            # 11.1 Включаем R05_DI4_FREE на 100 мс и выключаем
+            io.pulse("R05_DI4_FREE", ms=300)
+
             # 12. Включаем R02_C1_UP и ждём, пока GER_C1_UP станет CLOSE.
             io.set_relay("R02_C1_UP", True)
             ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)

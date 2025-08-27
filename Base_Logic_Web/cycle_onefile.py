@@ -290,6 +290,7 @@ def main():
             if not ok:
                 # === АВАРИЙНАЯ ВЕТКА при отсутствии OK по моменту ===
                 # 10a. Поднимаем основной цилиндр до верха
+                io.set_relay("R03_C1_DOWN", False)
                 io.set_relay("R02_C1_UP", True)
                 ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
                 io.set_relay("R02_C1_UP", False)

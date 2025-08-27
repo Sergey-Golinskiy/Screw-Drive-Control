@@ -259,6 +259,7 @@ def main():
             return
 
         # ---------------- ОСНОВНОЙ ЦИКЛ (с шага 5) ----------------
+        c1_hold_down = False  # Флаг, что R03_C1_DOWN сейчас держится
         while True:
             # 5. Ждём нажатия педальки PED_START — первое нажатие в этом цикле
             ok = wait_new_press(io, "PED_START", None)  # None -> ждать без таймаута
@@ -272,6 +273,8 @@ def main():
             if not ok:
                 io.set_relay("R03_C1_DOWN", False)
                 break
+            # ВАЖНО: НЕ выключаем R03_C1_DOWN здесь — поджим держим до подъёма (шаг 12)
+            c1_hold_down = True   # <-- добавь эту строку (переменная локальная в main/цикле)
 
             # 7. Ждём нажатия педальки PED_START — второе нажатие в этом цикле
             ok = wait_new_press(io, "PED_START", None)
@@ -316,8 +319,8 @@ def main():
             # 12. Включаем R02_C1_UP и ждём, пока GER_C1_UP станет CLOSE.
             io.set_relay("R02_C1_UP", True)
             ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
-            io.set_relay("R03_C1_DOWN", False)
             io.set_relay("R02_C1_UP", False)
+            c1_hold_down = False  # <-- сбрось флаг, т.к. подъём завершён
             if not ok:
                 break
 

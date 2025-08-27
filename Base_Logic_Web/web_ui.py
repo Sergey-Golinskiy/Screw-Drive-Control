@@ -51,7 +51,7 @@ def api_relay():
 
     name = data.get("name")
     action = data.get("action")
-    ms = int(data.get("ms", 150))
+    ms = int(data.get("ms", 500))
 
     if name not in RELAY_PINS:
         return jsonify({"error": f"unknown relay '{name}'"}), 400

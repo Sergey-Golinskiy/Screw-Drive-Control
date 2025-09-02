@@ -187,6 +187,24 @@ def open_serial():
     ser.rts = False
     return ser
 
+def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
+    """
+    Ждём строку 'ok READY' от прошивки Arduino.
+    Возвращает True при успехе, False при таймауте.
+    """
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        # допускаем разные регистры/пробелы
+        if s.lower().replace("  ", " ").strip() == "ok ready":
+            return True
+    print("[SER] TIMEOUT: не получили 'ok READY'")
+    return False
+
+
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
     payload = (line.strip() + "\n").encode()
@@ -287,6 +305,20 @@ def main():
     print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
     print(f"[{ts()}] Serial открыт")
+
+    # --- 2.1 Ждём 'ok READY' от Arduino ---
+    # на всякий случай очистим входной буфер от мусора при старте
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    if not wait_ready(ser, timeout=5.0):
+        # если нужно — можно прервать работу:
+        # return
+        # либо просто продолжить, но по ТЗ корректнее остановиться
+        return
+
 
     try:
         print("=== Старт скрипта ===")

@@ -393,7 +393,7 @@ def main():
             if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
                 feed_until_detect(io)                # повторяем п.9 до успеха
             if not torque_sequence(io):              # 25–28
-                torque_fallback(io)
+                move_xy(ser, 35, 20, MOVE_F)
 
 
             move_xy(ser, 35, 20, MOVE_F)

@@ -18,8 +18,8 @@ float STEPS_PER_MM_X = 100.0f;
 float STEPS_PER_MM_Y = 100.0f;
 
 // мягкие стартовые параметры
-float MAX_FEED_MM_S  = 50.0f;   // мм/с
-float MAX_ACC_MM_S2  = 500.0f;  // мм/с^2
+float MAX_FEED_MM_S  = 80.0f;   // мм/с
+float MAX_ACC_MM_S2  = 3000.0f;  // мм/с^2
 
 // Рабочие лимиты (мм): 0…MAX (ноль на MIN)
 float X_MIN_MM = 0.0f, X_MAX_MM = 60.0f;

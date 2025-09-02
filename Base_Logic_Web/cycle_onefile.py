@@ -394,6 +394,7 @@ def main():
                 feed_until_detect(io)                # повторяем п.9 до успеха
             if not torque_sequence(io):              # 25–28
                 move_xy(ser, 35, 20, MOVE_F)
+                continue
 
 
             move_xy(ser, 35, 20, MOVE_F)

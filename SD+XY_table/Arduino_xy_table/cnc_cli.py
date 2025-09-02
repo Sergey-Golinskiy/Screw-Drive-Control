@@ -137,6 +137,12 @@ def main():
         gl.open()
         gl.start_reader()
 
+        # небольшой "рукопожатие"
+        try:
+            gl.send("PING")
+        except Exception:
+            # не все версии печатают PONG — просто игнорируем
+            pass
 
         if args.cmd == "ping":
             gl.send("PING")

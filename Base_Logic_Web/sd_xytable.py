@@ -386,6 +386,8 @@ def main():
             if not torque_sequence(io):              # 25–28
                 continue
 
+            move_xy(ser, 35, 20, MOVE_F)
+
             # 29. Повторяем с пункта 7 — просто продолжаем while True
 
     except KeyboardInterrupt:

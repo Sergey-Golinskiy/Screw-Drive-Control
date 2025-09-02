@@ -76,7 +76,7 @@ void setKinematicsMax(){
 }
 
 void setup(){
-  Serial.begin(115200);
+  Serial.begin(250000);
   setupPins();
   setKinematicsMax();
   Serial.println("ok READY");

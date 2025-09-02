@@ -3,7 +3,7 @@ import argparse, sys, time, threading
 from typing import Optional
 import serial
 
-DEFAULT_BAUD = 115200
+DEFAULT_BAUD = 250000
 
 class GLink:
     def __init__(self, port:str, baud:int=DEFAULT_BAUD, timeout:float=2.0, eol:str="\n"):
@@ -18,10 +18,14 @@ class GLink:
         self._rx_lock = threading.Lock()
 
     def open(self):
+        # Отключаем автосброс по DTR/RTS и открываем порт без лишних пауз
         self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
-        # Arduino Mega ресетится при открытии порта — подождём
-        time.sleep(2.0)
-        # Очистим мусор при старте
+        try:
+            self.ser.dtr = False
+            self.ser.rts = False
+        except Exception:
+            pass
+        # НЕ спим 2 секунды
         self.ser.reset_input_buffer()
         self.ser.reset_output_buffer()
 
@@ -89,6 +93,8 @@ def build_parser():
     p.add_argument("--port", "-p", default="/dev/ttyACM0", help="Serial port (e.g. /dev/ttyACM0)")
     p.add_argument("--baud", "-b", type=int, default=DEFAULT_BAUD, help="Baudrate")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("repl", help="Interactive mode: keep port open and send lines")
 
     sub.add_parser("ping", help="PING → PONG")
     sub.add_parser("status", help="M114/M119")
@@ -180,7 +186,17 @@ def main():
             line = " ".join(args.line)
             # для "G ..." отвечаем до ok; для "DX/DY" тоже
             gl.send(line)
-
+        elif args.cmd == "repl":
+            print("Connected. Type commands (e.g. G28, M119, G X10 Y5 F3000). Ctrl+C to exit.")
+            while True:
+                try:
+                    line = input("> ").strip()
+                    if not line: 
+                        continue
+                    gl.send(line, wait_ok=True, print_io=True, timeout_s=30.0)
+                except (KeyboardInterrupt, EOFError):
+                    print("\nBye")
+                    break
         else:
             print("Unknown command", file=sys.stderr)
             sys.exit(2)

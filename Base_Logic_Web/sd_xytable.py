@@ -297,6 +297,15 @@ def torque_sequence(io: IOController) -> bool:
     io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
     return True
 
+def torque_fallback(io: IOController):
+    """
+    Аварийный вариант: момент не достигнут.
+    Просто поднимаем отвёртку (GER_C2_UP) и выключаем реле.
+    """
+    io.set_relay("R04_C2", False)
+    io.set_relay("R06_DI1_POT", False)
+    wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+
 # =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
     io = IOController()
@@ -384,7 +393,8 @@ def main():
             if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
                 feed_until_detect(io)                # повторяем п.9 до успеха
             if not torque_sequence(io):              # 25–28
-                continue
+                torque_fallback(io)
+
 
             move_xy(ser, 35, 20, MOVE_F)
 

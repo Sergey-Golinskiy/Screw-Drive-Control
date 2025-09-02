@@ -137,6 +137,7 @@ def main():
         gl.open()
         gl.start_reader()
 
+
         if args.cmd == "ping":
             gl.send("PING")
 

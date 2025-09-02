@@ -3,7 +3,7 @@ import argparse, sys, time, threading
 from typing import Optional
 import serial
 
-DEFAULT_BAUD = 250000
+DEFAULT_BAUD = 115200
 
 class GLink:
     def __init__(self, port:str, baud:int=DEFAULT_BAUD, timeout:float=2.0, eol:str="\n"):

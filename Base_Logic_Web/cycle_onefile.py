@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import RPi.GPIO as GPIO # type: ignore
 import time
-from datetime import datetime
 import threading
+from datetime import datetime
 
-# =====================[ НАСТРОЙКИ ЖЕЛЕЗА ]=====================
-# Если твоя релейка включается НИЗКИМ уровнем (LOW-trigger) -> True
-# Если ВЫСОКИМ уровнем (HIGH-trigger) -> False
-RELAY_ACTIVE_LOW = True
+import RPi.GPIO as GPIO
 
-# BCM-распиновка реле (логические имена -> GPIO)
+# ===[ ДОБАВЛЕНО: serial ]===
+import serial
+
+# =====================[ КОНФИГ ]=====================
+RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
+
+# Реле (BCM): подгони под свою распиновку при необходимости
 RELAY_PINS = {
     "R01_PIT":     5,   # Питатель винтов (импульс)
     "R02_C1_UP":   6,   # Подъём основного цилиндра
@@ -33,43 +35,56 @@ SENSOR_PINS = {
     "PED_START":    18,  # педалька для старта цикла
 }
 
-# Пары реле, которые нельзя держать включёнными одновременно
+# Парные взаимоблокировки (оставили как в базе; сейчас R02/R03 не конфликтуют, но пусть будет)
 MUTEX_GROUPS = [
     ("R02_C1_UP", "R03_C1_DOWN"),
 ]
 
-# Антидребезг датчиков и параметры опроса (мс)
 SENSOR_BOUNCE_MS = 20
 POLL_INTERVAL_MS = 5
 
-# =====================[ ВСПОМОГАТЕЛЬНОЕ ]======================
+# Таймауты/времена
+TIMEOUT_SEC = 5.0                 # ожидания герконов/датчиков (кроме педали)
+FEED_PULSE_MS = 200               # п.9/16/23: импульс подачі
+IND_PULSE_WINDOW_MS = 10000         # п.10/17/24: окно контроля IND_SCRW
+FREE_BURST_MS = 100               # п.14/21/28: импульс free-run
+MOVE_F = 30000                    # скорость G-команд
+
+# Точки для трёх подач (п.8, п.15, п.22)
+POINTS = [
+    (35, 155),
+    (15, 123),
+    (54, 123),
+]
+
+# Серийный порт
+SERIAL_PORT = "/dev/ttyACM0"
+SERIAL_BAUD = 115200
+SERIAL_TIMEOUT = 0.5
+SERIAL_WTIMEOUT = 0.5
+
+# =====================[ ВСПОМОГАТЕЛЬНОЕ ]=====================
 def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 def relay_gpio_value(on: bool) -> int:
-    """Преобразование логического on/off в уровень GPIO с учётом полярности реле."""
-    if RELAY_ACTIVE_LOW:
-        return GPIO.LOW if on else GPIO.HIGH
-    else:
-        return GPIO.HIGH if on else GPIO.LOW
+    return GPIO.LOW if (RELAY_ACTIVE_LOW and on) or ((not RELAY_ACTIVE_LOW) and (not on)) else GPIO.HIGH
 
-# =====================[ КОНТРОЛЛЕР IO ]========================
+# =====================[ IO КОНТРОЛЛЕР ]=======================
 class IOController:
     def __init__(self):
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
 
-        # Реле: настраиваем OUTPUT и гарантированно выключаем
-        for name, pin in RELAY_PINS.items():
+        for pin in RELAY_PINS.values():
             GPIO.setup(pin, GPIO.OUT, initial=relay_gpio_value(False))
 
-        # Датчики: входы с подтяжкой вверх (замыкание на GND = CLOSE/LOW)
-        for name, pin in SENSOR_PINS.items():
+        for pin in SENSOR_PINS.values():
             GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
         self.relays = {name: False for name in RELAY_PINS.keys()}
 
-        # Пробуем повесить аппаратные события на оба фронта
+        # Попытка повесить edge; если не выйдет — polling fallback
         self._use_poll_fallback = False
         self._last_state = {}
         edge_ok = True
@@ -80,7 +95,7 @@ class IOController:
                 except Exception:
                     pass
                 GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._sensor_event, bouncetime=SENSOR_BOUNCE_MS)
-                self._last_state[name] = (GPIO.input(pin) == GPIO.LOW)  # True=CLOSE
+                self._last_state[name] = (GPIO.input(pin) == GPIO.LOW)
             except Exception as e:
                 print(f"[{ts()}] WARN: Edge detect failed on {name} (GPIO{pin}): {e}")
                 edge_ok = False
@@ -97,73 +112,50 @@ class IOController:
         print(f"[{ts()}] IO init done. All relays OFF. Edge={'ON' if not self._use_poll_fallback else 'OFF/Polling'}")
 
     def cleanup(self):
-        # Безопасно выключаем всё и освобождаем GPIO
-        for name in list(self.relays.keys()):
-            self._apply_relay(name, False)
         if getattr(self, "_use_poll_fallback", False):
             self._poll_stop.set()
             if hasattr(self, "_poll_thr"):
                 self._poll_thr.join(timeout=0.5)
+        # выключать реле при выходе — по ситуации; оставим безопасно OFF
+        for name in list(self.relays.keys()):
+            self._apply_relay(name, False)
         GPIO.cleanup()
 
-    # -------- Управление реле --------
+    # ---- Реле
     def _apply_relay(self, relay_name: str, on: bool):
         pin = RELAY_PINS[relay_name]
         GPIO.output(pin, relay_gpio_value(on))
         self.relays[relay_name] = on
+        print(f"[{ts()}] {relay_name} -> {'ON' if on else 'OFF'}")
 
     def set_relay(self, relay_name: str, on: bool):
         if relay_name not in RELAY_PINS:
             raise ValueError(f"Unknown relay '{relay_name}'")
-        # Взаимоблокировки: перед включением отключить "антагониста"
         if on:
             for a, b in MUTEX_GROUPS:
                 if relay_name == a and self.relays.get(b, False):
                     self._apply_relay(b, False)
-                    print(f"[{ts()}] Interlock: OFF {b} before ON {a}")
                 if relay_name == b and self.relays.get(a, False):
                     self._apply_relay(a, False)
-                    print(f"[{ts()}] Interlock: OFF {a} before ON {b}")
         self._apply_relay(relay_name, on)
-        print(f"[{ts()}] {relay_name} -> {'ON' if on else 'OFF'}")
 
-    def pulse(self, relay_name: str, ms: int = 150):
+    def pulse(self, relay_name: str, ms: int):
         self.set_relay(relay_name, True)
-        time.sleep(ms/1000.0)
+        time.sleep(ms / 1000.0)
         self.set_relay(relay_name, False)
 
-    # ---- Удобные обёртки для отвёртки ----
-    def screwdriver_free_run(self, on: bool):
-        """DI4 FREE-RUN: держать ON = крутится; OFF = остановка."""
-        self.set_relay("R05_DI4_FREE", on)
-
-    def screwdriver_torque_mode(self, on: bool):
-        """DI1 TORQUE (по моменту): держать ON до подтверждения ОК (датчик добавим позже)."""
-        self.set_relay("R06_DI1_POT", on)
-
-    def screwdriver_select_task0(self, pulse_ms: int = 700):
-        """DI5 TASK0: импульс выбора задачи (700 мс по ТЗ)."""
-        self.pulse("R07_DI5_TSK0", ms=pulse_ms)
-
-    # -------- Датчики --------
+    # ---- Датчики
     def sensor_state(self, sensor_name: str) -> bool:
-        """True = CLOSE (LOW), False = OPEN (HIGH)."""
         pin = SENSOR_PINS[sensor_name]
-        return GPIO.input(pin) == GPIO.LOW
+        return GPIO.input(pin) == GPIO.LOW  # True=CLOSE
 
-    # ---- Edge callback path ----
-    def _sensor_event(self, channel_pin: int):
-        name = None
+    def _sensor_event(self, ch_pin: int):
+        # просто печать изменений; логика цикла опрашивает синхронно
         for n, p in SENSOR_PINS.items():
-            if p == channel_pin:
-                name = n
+            if p == ch_pin:
+                print(f"[{ts()}] SENSOR {n}: {'CLOSE' if self.sensor_state(n) else 'OPEN'}")
                 break
-        if name is None:
-            return
-        closed = (GPIO.input(channel_pin) == GPIO.LOW)
-        self._emit_sensor(name, closed)
 
-    # ---- Polling fallback path ----
     def _poll_loop(self):
         stable_required = max(1, SENSOR_BOUNCE_MS // POLL_INTERVAL_MS)
         counters = {name: 0 for name in SENSOR_PINS.keys()}
@@ -175,26 +167,61 @@ class IOController:
                     if counters[name] >= stable_required:
                         self._last_state[name] = closed_now
                         counters[name] = 0
-                        self._emit_sensor(name, closed_now)
+                        print(f"[{ts()}] SENSOR {name}: {'CLOSE' if closed_now else 'OPEN'}")
                 else:
                     counters[name] = 0
             time.sleep(POLL_INTERVAL_MS / 1000.0)
 
-    # ---- Common emitter ----
-    def _emit_sensor(self, name: str, closed: bool):
-        print(f"[{ts()}] SENSOR {name}: {'CLOSE' if closed else 'OPEN'}")
+# =====================[ SERIAL / G-КОД ]=======================
+def open_serial():
+    ser = serial.Serial(
+        port=SERIAL_PORT,
+        baudrate=SERIAL_BAUD,
+        timeout=SERIAL_TIMEOUT,
+        write_timeout=SERIAL_WTIMEOUT,
+        rtscts=False,
+        dsrdtr=False
+    )
+    # Отключаем автосбросные линии
+    ser.dtr = False
+    ser.rts = False
+    return ser
 
-# =====================[ ЛОГИКА ШАГОВ ]=========================
-# Поставь None, если хочешь ждать бесконечно
-TIMEOUT_SEC = 5.0
-
-def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout: float | None) -> bool:
+def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     """
-    Ждём, пока датчик станет нужным состоянием.
-    target_close=True  -> ждём CLOSE (уровень LOW)
-    target_close=False -> ждём OPEN  (уровень HIGH)
+    Ждём строку 'ok READY' от прошивки Arduino.
     Возвращает True при успехе, False при таймауте.
     """
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        # допускаем разные регистры/пробелы
+        if s.lower().replace("  ", " ").strip() == "ok ready":
+            return True
+    print("[SER] TIMEOUT: не получили 'ok READY'")
+    return False
+
+
+def send_cmd(ser: serial.Serial, line: str):
+    """Отправить команду и дождаться ok/err; печатаем ответы."""
+    payload = (line.strip() + "\n").encode()
+    ser.write(payload)
+    while True:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        if s.startswith("ok") or s.startswith("err"):
+            break
+
+def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
+    send_cmd(ser, f"G X{x} Y{y} F{f}")
+
+# =====================[ ХЕЛПЕРЫ ЛОГИКИ ]=======================
+def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout: float | None) -> bool:
     start = time.time()
     wanted = "CLOSE" if target_close else "OPEN"
     while True:
@@ -205,26 +232,10 @@ def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout:
             return False
         time.sleep(0.01)
 
-def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int = 300) -> bool:
-    """
-    Ждём в течение window_ms, что датчик станет CLOSE хотя бы на миг.
-    Возвращает True, если увидели CLOSE; иначе False.
-    """
-    t_end = time.time() + (window_ms / 1000.0)
-    while time.time() < t_end:
-        if io.sensor_state(sensor_name):  # CLOSE
-            return True
-        time.sleep(0.005)  # 5 мс
-    return False
-
-
 def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) -> bool:
-    """
-    Ждём ИМЕННО НОВОЕ нажатие (OPEN -> CLOSE).
-    Сначала убеждаемся, что педаль отжата (OPEN), затем ждём CLOSE.
-    """
+    """Ждём новую нажим педали (OPEN -> CLOSE)"""
     start = time.time()
-    # 1) дождаться OPEN (если сейчас уже нажата)
+    # дождаться OPEN
     while True:
         if not io.sensor_state(sensor_name):  # OPEN
             break
@@ -232,8 +243,7 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             print(f"[wait_new_press] TIMEOUT: {sensor_name} не вернулась в OPEN")
             return False
         time.sleep(0.01)
-
-    # 2) дождаться CLOSE (новое нажатие)
+    # дождаться CLOSE
     start = time.time()
     while True:
         if io.sensor_state(sensor_name):  # CLOSE
@@ -243,127 +253,159 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             return False
         time.sleep(0.01)
 
+def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool:
+    """Ждём, что датчик станет CLOSE хотя бы импульсно в течение window_ms."""
+    t_end = time.time() + (window_ms / 1000.0)
+    while time.time() < t_end:
+        if io.sensor_state(sensor_name):  # CLOSE
+            return True
+        time.sleep(0.005)
+    return False
 
+def feed_until_detect(io: IOController):
+    """Подача винта (п.9/16/23) с повтором, пока не придёт импульс IND_SCRW (п.10/17/24)."""
+    while True:
+        io.pulse("R01_PIT", ms=FEED_PULSE_MS)
+        if wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):
+            return
+        print("[feed] Нет импульса IND_SCRW, повторяю подачу...")
+
+def torque_sequence(io: IOController) -> bool:
+    """
+    Включить моментный режим и опустить отвёртку до DO2_OK=CLOSE,
+    затем поднять (ждать GER_C2_UP) и дать free-run импульс.
+    Возвращает True при успехе, False при таймауте (в этом случае всё выключено и инструмент поднят).
+    """
+    io.set_relay("R06_DI1_POT", True)           # п.11 / 18 / 25
+    io.set_relay("R04_C2", True)                # п.12 / 19 / 26
+    ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
+    if not ok:
+        print("[torque] TIMEOUT по DO2_OK — выключаю и поднимаю C2")
+        io.set_relay("R04_C2", False)
+        io.set_relay("R06_DI1_POT", False)
+        wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+        return False
+
+    # момент достигнут — поднять инструмент
+    io.set_relay("R04_C2", False)               # п.13 / 20 / 27 (часть 1)
+    io.set_relay("R06_DI1_POT", False)          # п.13 / 20 / 27 (часть 2)
+    ok_up = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+    if not ok_up:
+        return False
+
+    # free-run импульс 100 мс (п.14 / 21 / 28)
+    io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
+    return True
+
+def torque_fallback(io: IOController):
+    """
+    Аварийный вариант: момент не достигнут.
+    Просто поднимаем отвёртку (GER_C2_UP) и выключаем реле.
+    """
+    io.set_relay("R04_C2", False)
+    io.set_relay("R06_DI1_POT", False)
+    wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+
+# =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
     io = IOController()
+
+    # --- Открыть serial и держать открытым до завершения процесса ---
+    print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
+    ser = open_serial()
+    print(f"[{ts()}] Serial открыт")
+
+    # --- 2.1 Ждём 'ok READY' от Arduino ---
+    # на всякий случай очистим входной буфер от мусора при старте
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    if not wait_ready(ser, timeout=5.0):
+        # если нужно — можно прервать работу:
+        # return
+        # либо просто продолжить, но по ТЗ корректнее остановиться
+        return
+
+
     try:
         print("=== Старт скрипта ===")
 
-        # ---------------- ИНИЦИАЛИЗАЦИЯ (шаги 2–4) ----------------
-        # 2. Проверяем GER_C1_UP; если OPEN — включаем R02_C1_UP и ждём CLOSE.
-        if not io.sensor_state("GER_C1_UP"):  # OPEN
+        # 3. G28 — хоуминг, ждём ok
+        send_cmd(ser, "G28")
+
+        # 4. Проверяем GER_C1_UP; если OPEN — поднять до CLOSE
+        if not io.sensor_state("GER_C1_UP"):
             io.set_relay("R02_C1_UP", True)
             ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
             io.set_relay("R02_C1_UP", False)
             if not ok:
+                print("[init] Не удалось поднять C1 до верха")
                 return
 
-        # 3. Включаем R04_C2 и держим включённым, пока GER_C2_DOWN не станет CLOSE
+        # 5. Включаем R04_C2 до GER_C2_DOWN=CLOSE
         io.set_relay("R04_C2", True)
         ok = wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC)
         if not ok:
             io.set_relay("R04_C2", False)
+            print("[init] Не удалось опустить C2 до низа")
             return
 
-        # 4. Выключаем R04_C2 и ждём, пока GER_C2_UP станет CLOSE.
+        # 6. Выключаем R04_C2, ждём GER_C2_UP=CLOSE
         io.set_relay("R04_C2", False)
         ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
         if not ok:
+            print("[init] Не удалось поднять C2 до верха")
             return
 
-        # ---------------- ОСНОВНОЙ ЦИКЛ (с шага 5) ----------------
-        c1_hold_down = False  # Флаг, что R03_C1_DOWN сейчас держится
+        # ---------- Основной цикл: п.7..29 ----------
         while True:
-            # 5. Ждём нажатия педальки PED_START — первое нажатие в этом цикле
-            ok = wait_new_press(io, "PED_START", None)  # None -> ждать без таймаута
-            if not ok:
+            # 7. Ждём нажатия педальки
+            print("[cycle] Жду педаль PED_START...")
+            if not wait_new_press(io, "PED_START", None):
                 break
 
-            # 6. Включаем R03_C1_DOWN и держим включённым, пока GER_C1_DOWN не станет CLOSE.
-            io.set_relay("R03_C1_DOWN", True)
-            ok = wait_sensor(io, "GER_C1_DOWN", True, TIMEOUT_SEC)
-            
-            if not ok:
-                io.set_relay("R03_C1_DOWN", False)
-                break
-            # ВАЖНО: НЕ выключаем R03_C1_DOWN здесь — поджим держим до подъёма (шаг 12)
-            c1_hold_down = True   # <-- добавь эту строку (переменная локальная в main/цикле)
-
-            # 7. Ждём нажатия педальки PED_START — второе нажатие в этом цикле
-            ok = wait_new_press(io, "PED_START", None)
-            if not ok:
-                break
-
-            # 8. Даем импульс (700 мс) на R01_PIT
-            #io.pulse("R01_PIT", ms=700)
-            # 8 + 8.1: Подача винта + проверка IND_SCRW в течение 300 мс.
-            # Повторяем импульсы, пока не увидим CLOSE от IND_SCRW.
-            SCREW_FEED_MAX_RETRIES = None  # None = без ограничений; можно поставить число (например, 5)
-            attempts = 0
-            while True:
-                io.pulse("R01_PIT", ms=200)  # п.8
-                if wait_close_pulse(io, "IND_SCRW", window_ms=1000):  # п.8.1
-                    break
-                attempts += 1
-                if SCREW_FEED_MAX_RETRIES is not None and attempts >= SCREW_FEED_MAX_RETRIES:
-                    print("[feed] Нет импульса IND_SCRW после нескольких попыток")
-                    # при желании можно сделать аварийный выход:
-                    # break из основного цикла или continue к новому циклу — по твоему решению
-                    # сейчас выйдем из основного цикла:
-                    return
-
-
-            # 9. Включаем R06_DI1_POT (режим по моменту)
-            io.set_relay("R06_DI1_POT", True)
-
-            # 10. Включаем R04_C2 и держим до DO2_OK=CLOSE
-            io.set_relay("R04_C2", True)
-            ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
-
-            if not ok:
-                # === АВАРИЙНАЯ ВЕТКА при отсутствии OK по моменту ===
-                # 10a. Поднимаем основной цилиндр до верха
-                io.set_relay("R02_C1_UP", True)
-                ok_up = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
-                io.set_relay("R02_C1_UP", False)
-
-                # 10b. Поднимаем отвертку: выключаем R04_C2 и ждём верх
-                io.set_relay("R04_C2", False)
-                ok_c2_up = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
-
-                # Логично также отключить моментный режим (иначе драйвер будет крутить)
-                io.set_relay("R06_DI1_POT", False)
-
-                # Переходим к следующему циклу (возврат к п.5)
+            # --- Точка 1: X35 Y155 (пп.8–14) ---
+            x, y = POINTS[0]
+            move_xy(ser, x, y, MOVE_F)               # 8
+            feed_until_detect(io)                     # 9 + 10
+            if not torque_sequence(io):              # 11–14 (с free-run)
+                # При таймауте по моменту возвращаемся к ожиданию педали
                 continue
 
-            # === НОРМАЛЬНЫЙ ПУТЬ: момент достигнут ===
-            # 11. Выключаем R04_C2 и R06_DI1_POT и ждём, пока GER_C2_UP станет CLOSE
-            io.set_relay("R04_C2", False)
-            io.set_relay("R06_DI1_POT", False)
-            ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
-            if not ok:
-                break
+            # --- Точка 2: X15 Y123 (пп.15–21) ---
+            x, y = POINTS[1]
+            move_xy(ser, x, y, MOVE_F)               # 15
+            # Подача и контроль IND_SCRW
+            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 16
+            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 17
+                # если нет импульса — повторяем подачу (логика п.10 говорит «делаем ещё раз пункт 9»)
+                feed_until_detect(io)
+            if not torque_sequence(io):              # 18–21
+                continue
 
-            # 11.1 Включаем R05_DI4_FREE на 100 мс и выключаем
-            io.pulse("R05_DI4_FREE", ms=300)
+            # --- Точка 3: X54 Y123 (пп.22–28) ---
+            x, y = POINTS[2]
+            move_xy(ser, x, y, MOVE_F)               # 22
+            # Подача и контроль IND_SCRW
+            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 23
+            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
+                feed_until_detect(io)                # повторяем п.9 до успеха
+            if not torque_sequence(io):              # 25–28
+                torque_fallback(io)
 
-            # 12. Включаем R02_C1_UP и ждём, пока GER_C1_UP станет CLOSE.
-            io.set_relay("R02_C1_UP", True)
-            ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
-            io.set_relay("R02_C1_UP", False)
-            c1_hold_down = False  # <-- сбрось флаг, т.к. подъём завершён
-            if not ok:
-                break
 
-            # 13. Повторяем с пункта 5 (while True крутит дальше)
+            move_xy(ser, 35, 20, MOVE_F)
+
+            # 29. Повторяем с пункта 7 — просто продолжаем while True
 
     except KeyboardInterrupt:
         pass
     finally:
+        # ВАЖНО: по шпаргалке — порт держим открытым, ser.close() не вызываем
         io.cleanup()
         print("=== Остановлено. GPIO освобождены ===")
-
 
 if __name__ == "__main__":
     main()

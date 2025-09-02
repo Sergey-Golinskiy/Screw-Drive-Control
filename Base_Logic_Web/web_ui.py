@@ -2,22 +2,30 @@
 # -*- coding: utf-8 -*-
 import time
 import threading
+import subprocess
+import sys
+import os
+import signal
 from functools import wraps
 from flask import Flask, request, jsonify, Response
+
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 
-# ---------------------- Инициализация железа ----------------------
-io_lock = threading.Lock()
-io = IOController()  # единый контроллер GPIO
-
+# ---------------------- Инициализация ----------------------
 app = Flask(__name__)
 
-# ---------- Состояние цикла (фонового выполнения) ----------
-cycle_thread = None
-cycle_stop = threading.Event()
-cycle_running = False
+io_lock = threading.Lock()
+io: IOController | None = IOController()  # контроллер GPIO (можем временно освободить)
 
-TIMEOUT_SEC = 5.0  # тот же таймаут, что и в твоём файле
+# Внутренний «цикл» веб-панели (если ты его использовал раньше) — оставим выключенным.
+# Мы запускаем внешний скрипт как отдельный процесс.
+cycle_thread = None   # не используется, оставлено для совместимости
+cycle_running = False # не используется, оставлено для совместимости
+
+# Внешний процесс (cycle_onefile.py)
+ext_proc: subprocess.Popen | None = None
+
+TIMEOUT_SEC = 5.0  # базовый таймаут для ожидания датчиков (если понадобится)
 
 def with_io_lock(fn):
     @wraps(fn)
@@ -26,191 +34,98 @@ def with_io_lock(fn):
             return fn(*args, **kwargs)
     return wrapper
 
-# ---------- Утилиты ожидания (безопасные для потока) ----------
+# ---------------------- GPIO helpers ----------------------
 def _sensor_state(name: str) -> bool:
-    # True = CLOSE (LOW), False = OPEN (HIGH)
-    with io_lock:
-        return io.sensor_state(name)
+    if io is None:
+        return False
+    return io.sensor_state(name)
 
 def _set_relay(name: str, on: bool):
-    with io_lock:
-        io.set_relay(name, on)
+    if io is None:
+        raise RuntimeError("GPIO not available (external script running)")
+    io.set_relay(name, on)
 
 def _pulse(name: str, ms: int):
-    with io_lock:
-        io.pulse(name, ms=ms)
+    if io is None:
+        raise RuntimeError("GPIO not available (external script running)")
+    io.pulse(name, ms=ms)
 
-def wait_sensor(sensor_name: str, target_close: bool, timeout: float | None) -> bool:
-    """
-    Ждём, пока датчик станет нужным состоянием.
-    target_close=True -> CLOSE; False -> OPEN.
-    Учитываем запрос остановки цикла.
-    """
-    start = time.time()
-    while True:
-        if cycle_stop.is_set():
-            return False
-        if _sensor_state(sensor_name) == target_close:
-            return True
-        if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_sensor] TIMEOUT: {sensor_name} != {'CLOSE' if target_close else 'OPEN'}")
-            return False
-        time.sleep(0.01)
+# ---------------------- External script control ----------------------
+def ext_is_running() -> bool:
+    return ext_proc is not None and (ext_proc.poll() is None)
 
-def wait_close_pulse_ui(sensor_name: str, window_ms: int = 300) -> bool:
-    """
-    Ждём, что датчик станет CLOSE хотя бы на миг в течение window_ms.
-    Учитываем запрос остановки цикла.
-    """
-    t_end = time.time() + (window_ms / 1000.0)
-    while time.time() < t_end:
-        if cycle_stop.is_set():
-            return False
-        if _sensor_state(sensor_name):  # CLOSE
-            return True
-        time.sleep(0.005)
-    return False
+@with_io_lock
+def ext_start() -> bool:
+    """Освобождаем GPIO в web_ui и запускаем внешний процесс."""
+    global io, ext_proc
+    if ext_is_running():
+        return True
 
-
-def wait_new_press(sensor_name: str, timeout: float | None) -> bool:
-    """
-    Ждём новое нажатие педали: OPEN -> CLOSE.
-    Сначала дожидаемся OPEN (если уже нажата), затем CLOSE.
-    """
-    start = time.time()
-    # дождаться OPEN
-    while True:
-        if cycle_stop.is_set():
-            return False
-        if not _sensor_state(sensor_name):  # OPEN
-            break
-        if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_new_press] TIMEOUT: {sensor_name} не вернулась в OPEN")
-            return False
-        time.sleep(0.01)
-    # дождаться CLOSE
-    start = time.time()
-    while True:
-        if cycle_stop.is_set():
-            return False
-        if _sensor_state(sensor_name):  # CLOSE
-            return True
-        if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_new_press] TIMEOUT: {sensor_name} не нажата")
-            return False
-        time.sleep(0.01)
-
-# ---------- Сам цикл (шаги 2–13) ----------
-def cycle_worker():
-    global cycle_running
-    try:
-        cycle_running = True
-        print("[cycle] start")
-        # --- Инициализация (шаги 2–4) ---
-        # 2. Проверяем GER_C1_UP; если OPEN — поднимаем до CLOSE.
-        if not _sensor_state("GER_C1_UP"):  # OPEN
-            _set_relay("R02_C1_UP", True)
-            if not wait_sensor("GER_C1_UP", True, TIMEOUT_SEC):
-                _set_relay("R02_C1_UP", False)
-                return
-            _set_relay("R02_C1_UP", False)
-
-        # 3. Включаем R04_C2 до GER_C2_DOWN=CLOSE
-        _set_relay("R04_C2", True)
-        if not wait_sensor("GER_C2_DOWN", True, TIMEOUT_SEC):
-            _set_relay("R04_C2", False)
-            return
-
-        # 4. Выключаем R04_C2, ждём GER_C2_UP=CLOSE
-        _set_relay("R04_C2", False)
-        if not wait_sensor("GER_C2_UP", True, TIMEOUT_SEC):
-            return
-
-        # --- Основной цикл (с шага 5) ---
-        while not cycle_stop.is_set():
-            # 5. Ждём нажатия педали (первое нажатие)
-            if not wait_new_press("PED_START", None):
-                break
-
-            # 6. Опускаем C1 до GER_C1_DOWN=CLOSE
-            _set_relay("R03_C1_DOWN", True)
-            if not wait_sensor("GER_C1_DOWN", True, TIMEOUT_SEC):
-                _set_relay("R03_C1_DOWN", False)
-                break
-            #_set_relay("R03_C1_DOWN", False)
-
-            # 7. Ждём второе нажатие педали
-            if not wait_new_press("PED_START", None):
-                break
-
-            # 8. Импульс на R01_PIT (700 мс)
-            #_pulse("R01_PIT", ms=700)
-            # 8 + 8.1: Подача винта и ожидание импульса IND_SCRW до 300 мс.
-            SCREW_FEED_MAX_RETRIES = None  # None = без ограничений; можно задать число
-            attempts = 0
-            while not cycle_stop.is_set():
-                _pulse("R01_PIT", ms=200)  # п.8
-                if wait_close_pulse_ui("IND_SCRW", window_ms=1000):  # п.8.1
-                    break
-                attempts += 1
-                if SCREW_FEED_MAX_RETRIES is not None and attempts >= SCREW_FEED_MAX_RETRIES:
-                    print("[cycle] Нет импульса IND_SCRW после нескольких попыток")
-                    # реши, что делать при исчерпании попыток:
-                    # 1) прервать цикл:
-                    return
-                    # 2) или перейти к началу цикла (п.5): break
-
-
-            # 9. Включаем R06_DI1_POT
-            _set_relay("R06_DI1_POT", True)
-
-            # 10. Включаем R04_C2 и держим до DO2_OK=CLOSE
-            _set_relay("R04_C2", True)
-            if not wait_sensor("DO2_OK", True, TIMEOUT_SEC):
-                _set_relay("R04_C2", False)
-                _set_relay("R06_DI1_POT", False)
-                break
-
-            # 11. Выключаем R04_C2 и R06_DI1_POT и ждём GER_C2_UP=CLOSE
-            _set_relay("R04_C2", False)
-            _set_relay("R06_DI1_POT", False)
-            if not wait_sensor("GER_C2_UP", True, TIMEOUT_SEC):
-                break
-            
-            # 11.1 Включаем R05_DI4_FREE на 100 мс и выключаем
-            _pulse("R05_DI4_FREE", ms=100)
-
-            # 12. Поднимаем C1 до GER_C1_UP=CLOSE
-            _set_relay("R02_C1_UP", True)
-            if not wait_sensor("GER_C1_UP", True, TIMEOUT_SEC):
-                _set_relay("R02_C1_UP", False)
-                break
-            _set_relay("R02_C1_UP", False)
-
-            # 13. Повтор с шага 5 (while крутит дальше)
-
-    finally:
-        # Гарантированно отпускаем всё при выходе
-        with io_lock:
-            # Ничего специально не выключаем поголовно, т.к. логика уже выключает.
-            # При необходимости можно добавить общий "всё OFF" тут.
+    # Освободить GPIO у веб-панели (если инициализированы)
+    if io is not None:
+        try:
+            io.cleanup()
+        except Exception:
             pass
-        cycle_running = False
-        print("[cycle] stop")
+        io = None
+
+    # Запускаем cycle_onefile.py тем же Python
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cycle_onefile.py")
+    ext_proc = subprocess.Popen([sys.executable, script_path],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                bufsize=1)
+    return True
+
+@with_io_lock
+def ext_stop() -> bool:
+    """Останавливаем внешний процесс и восстанавливаем GPIO в web_ui."""
+    global io, ext_proc
+    if not ext_is_running():
+        # уже остановлен — просто убедиться, что GPIO восстановлены
+        if io is None:
+            io = IOController()
+        return True
+
+    try:
+        # Послать SIGINT (как Ctrl+C), дать шанс корректно завершиться
+        ext_proc.send_signal(signal.SIGINT)
+        try:
+            ext_proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            # Жестко завершим
+            ext_proc.kill()
+            ext_proc.wait(timeout=2.0)
+    except Exception:
+        pass
+    finally:
+        ext_proc = None
+
+    # Восстановить GPIO в веб-панели
+    if io is None:
+        io = IOController()
+    return True
 
 # ---------------------- Status builder ----------------------
 def build_status():
-    # Чтобы не дёргать GPIO во время цикла слишком часто, делаем это под замком
-    with io_lock:
-        relays = dict(io.relays)
-        sensors = {name: io.sensor_state(name) for name in SENSOR_PINS.keys()}
+    external = ext_is_running()
+    if external or io is None:
+        # Если внешний процесс работает, не трогаем GPIO вовсе
+        relays = {}
+        sensors = {}
+    else:
+        with io_lock:
+            relays = dict(io.relays)
+            sensors = {name: io.sensor_state(name) for name in SENSOR_PINS.keys()}
+
     return {
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "relays": relays,
         "sensors": sensors,
         "relay_names": list(RELAY_PINS.keys()),
         "sensor_names": list(SENSOR_PINS.keys()),
-        "cycle_running": cycle_running,
+        "external_running": external,
     }
 
 # ---------------------- API ----------------------
@@ -220,8 +135,10 @@ def api_status():
 
 @app.route("/api/relay", methods=["POST"])
 def api_relay():
-    if cycle_running:
-        return jsonify({"error": "cycle_running", "message": "Цикл запущен — ручное управление реле временно заблокировано."}), 409
+    # Блокируем ручное управление, если внешний скрипт запущен
+    if ext_is_running() or io is None:
+        return jsonify({"error": "external_running", "message": "Запущен внешний скрипт — ручное управление временно недоступно."}), 409
+
     try:
         data = request.get_json(force=True)
     except Exception:
@@ -234,41 +151,33 @@ def api_relay():
     if name not in RELAY_PINS:
         return jsonify({"error": f"unknown relay '{name}'"}), 400
 
-    if action == "on":
-        _set_relay(name, True)
-    elif action == "off":
-        _set_relay(name, False)
-    elif action == "pulse":
-        _pulse(name, ms=ms)
-    else:
-        return jsonify({"error": "action must be 'on' | 'off' | 'pulse'"}), 400
+    with io_lock:
+        if action == "on":
+            _set_relay(name, True)
+        elif action == "off":
+            _set_relay(name, False)
+        elif action == "pulse":
+            _pulse(name, ms=ms)
+        else:
+            return jsonify({"error": "action must be 'on' | 'off' | 'pulse'"}), 400
 
     return jsonify(build_status())
 
-@app.route("/api/cycle/start", methods=["POST"])
-def api_cycle_start():
-    global cycle_thread
-    if cycle_running:
-        return jsonify(build_status())
-    # сбросим флаг остановки и стартанём поток
-    cycle_stop.clear()
-    cycle_thread = threading.Thread(target=cycle_worker, daemon=True)
-    cycle_thread.start()
-    # дадим потоку стартануть
-    time.sleep(0.05)
+@app.route("/api/ext/start", methods=["POST"])
+def api_ext_start():
+    ok = ext_start()
+    # даём процессу стартануть
+    time.sleep(0.1)
     return jsonify(build_status())
 
-@app.route("/api/cycle/stop", methods=["POST"])
-def api_cycle_stop():
-    if not cycle_running:
-        return jsonify(build_status())
-    cycle_stop.set()
-    # подождём завершения корректно
-    if cycle_thread is not None:
-        cycle_thread.join(timeout=1.0)
+@app.route("/api/ext/stop", methods=["POST"])
+def api_ext_stop():
+    ok = ext_stop()
+    # дать GPIO переинициализироваться
+    time.sleep(0.1)
     return jsonify(build_status())
 
-# ---------------------- UI (HTML+JS) ----------------------
+# ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>
 <html lang="ru">
 <head>
@@ -286,8 +195,6 @@ INDEX_HTML = """<!doctype html>
   .off{color:#a00;font-weight:600}
   .btn{padding:6px 10px;border:1px solid #ccc;border-radius:8px;background:#fafafa;cursor:pointer}
   .btn:hover{background:#f0f0f0}
-  .btn.on{border-color:#0a7a1f}
-  .btn.off{border-color:#a00}
   .small{font-size:12px;color:#666}
   .controls{display:flex;gap:8px;flex-wrap:wrap}
   input[type=number]{width:80px;padding:6px;border:1px solid #ccc;border-radius:8px}
@@ -295,6 +202,7 @@ INDEX_HTML = """<!doctype html>
   .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px}
   .pill.green{background:#d9f5df;color:#0a7a1f;border:1px solid #a7e5b2}
   .pill.gray{background:#eee;color:#333;border:1px solid #ddd}
+  .pill.blue{background:#cfe7ff;color:#0c4a8a;border:1px solid #99c2ff}
   .muted{color:#777;font-size:12px}
   .disabled{opacity:.5;pointer-events:none}
 </style>
@@ -305,17 +213,17 @@ INDEX_HTML = """<!doctype html>
 
   <div class="row">
     <div class="card" style="flex:1">
-      <h3>Управление циклом</h3>
-      <div id="cycleState" class="muted">Статус: неизвестно</div>
+      <h3>Внешний скрипт: cycle_onefile.py</h3>
+      <div id="extState" class="muted">Статус: неизвестно</div>
       <div class="controls" style="margin-top:8px">
-        <button id="btnStart" class="btn">START</button>
-        <button id="btnStop"  class="btn">STOP</button>
+        <button id="btnExtStart" class="btn">Start external</button>
+        <button id="btnExtStop"  class="btn">Stop external</button>
       </div>
-      <div class="muted" style="margin-top:8px">Во время работы цикла ручное управление реле отключено.</div>
+      <div class="muted" style="margin-top:8px">Когда внешний скрипт запущен, веб-панель не трогает GPIO и ручное управление недоступно.</div>
     </div>
 
     <div class="card" style="flex:1">
-      <h3>Датчики (герконы)</h3>
+      <h3>Датчики</h3>
       <table id="sensorsTbl">
         <thead><tr><th>Имя</th><th>Состояние</th></tr></thead>
         <tbody></tbody>
@@ -328,7 +236,7 @@ INDEX_HTML = """<!doctype html>
         <thead><tr><th>Имя</th><th>Состояние</th><th>Управление</th></tr></thead>
         <tbody></tbody>
       </table>
-      <div class="muted">Если цикл запущен, кнопки будут отключены.</div>
+      <div class="muted">Если внешний скрипт запущен — кнопки будут отключены.</div>
     </div>
   </div>
 
@@ -348,28 +256,29 @@ async function postRelay(name, action, ms){
   });
   if(res.status===409){
     const data = await res.json();
-    alert(data.message || 'Цикл запущен. Ручное управление недоступно.');
+    alert(data.message || 'Внешний скрипт запущен. Ручное управление недоступно.');
     return null;
   }
   if(!res.ok){throw new Error('relay HTTP '+res.status)}
   return await res.json();
 }
-async function postCycle(action){
-  const url = action==='start' ? '/api/cycle/start' : '/api/cycle/stop';
+async function postExt(action){
+  const url = action==='start' ? '/api/ext/start' : '/api/ext/stop';
   const res = await fetch(url, {method:'POST'});
-  if(!res.ok){throw new Error('cycle HTTP '+res.status)}
+  if(!res.ok){throw new Error('ext HTTP '+res.status)}
   return await res.json();
 }
 
-function renderCycleRunning(isRunning){
-  const state = document.getElementById('cycleState');
-  state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill green">RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
+function renderExternal(isRunning){
+  const state = document.getElementById('extState');
+  state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill blue">EXTERNAL RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
+  // блокировать таблицу реле и сенсоров при внешнем процессе
   document.getElementById('relaysTbl').classList.toggle('disabled', isRunning);
 }
 
 function render(data){
   document.getElementById('statusTime').textContent = 'Обновлено: ' + data.time;
-  renderCycleRunning(!!data.cycle_running);
+  renderExternal(!!data.external_running);
 
   // sensors
   const sbody = document.querySelector('#sensorsTbl tbody');
@@ -396,8 +305,8 @@ function render(data){
       <td>${val ? '<span class="ok">ON</span>' : '<span class="off">OFF</span>'}</td>
       <td>
         <div class="controls">
-          <button class="btn on"  onclick="cmd('${name}','on')">ON</button>
-          <button class="btn off" onclick="cmd('${name}','off')">OFF</button>
+          <button class="btn" onclick="cmd('${name}','on')">ON</button>
+          <button class="btn" onclick="cmd('${name}','off')">OFF</button>
           <input type="number" id="${pulseId}" min="20" value="150" title="Pulse, ms">
           <button class="btn" onclick="cmd('${name}','pulse', document.getElementById('${pulseId}').value)">PULSE</button>
         </div>
@@ -405,6 +314,12 @@ function render(data){
     `;
     rbody.appendChild(tr);
   }
+
+  // Если внешний скрипт работает — задизейблить input-кнопки на уровне DOM
+  const disabled = !!data.external_running;
+  document.querySelectorAll('#relaysTbl button, #relaysTbl input').forEach(el=>{
+    el.disabled = disabled;
+  });
 }
 
 async function refresh(){
@@ -420,11 +335,11 @@ async function cmd(name, action, ms){
   if(data) render(data);
 }
 
-document.getElementById('btnStart').addEventListener('click', async ()=>{
-  try{ render(await postCycle('start')); }catch(e){ alert('Ошибка запуска: '+e.message); }
+document.getElementById('btnExtStart').addEventListener('click', async ()=>{
+  try{ render(await postExt('start')); }catch(e){ alert('Ошибка запуска: '+e.message); }
 });
-document.getElementById('btnStop').addEventListener('click', async ()=>{
-  try{ render(await postCycle('stop')); }catch(e){ alert('Ошибка остановки: '+e.message); }
+document.getElementById('btnExtStop').addEventListener('click', async ()=>{
+  try{ render(await postExt('stop')); }catch(e){ alert('Ошибка остановки: '+e.message); }
 });
 
 refresh();
@@ -440,7 +355,7 @@ def index():
 
 # ---------------------- Запуск ----------------------
 def main():
-    # Тише в логах dev-сервера? Раскомментируй 2 строки ниже.
+    # При желании — отключить болтливость dev-сервера:
     # import logging
     # logging.getLogger('werkzeug').disabled = True
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=False, use_reloader=False)
@@ -452,4 +367,6 @@ if __name__ == "__main__":
         pass
     finally:
         with io_lock:
-            io.cleanup()
+            # если внешний процесс всё ещё жив — не трогаем GPIO
+            if not ext_is_running() and io is not None:
+                io.cleanup()

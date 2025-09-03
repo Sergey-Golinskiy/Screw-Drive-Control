@@ -11,7 +11,7 @@
 // Endstops (MIN only)
 #define X_MIN_PIN 3     // X-MIN
 #define Y_MIN_PIN 14    // Y-MIN
-
+#define STEP_PULSE_US 3
 /* ===== CONFIG: mechanics & logic ===== */
 // TR8x8, 800 imp/rev  => 800/8 = 100 steps/mm
 float STEPS_PER_MM_X = 100.0f;
@@ -67,13 +67,18 @@ void setupPins(){
 void setKinematicsMax(){
   stepX.setPinsInverted(INVERT_X_DIR, false, true); // dir, step, enable
   stepY.setPinsInverted(INVERT_Y_DIR, false, true);
-  stepX.setMinPulseWidth(5);  // μs
-  stepY.setMinPulseWidth(5);
+
+  stepX.setMinPulseWidth(STEP_PULSE_US);
+  stepY.setMinPulseWidth(STEP_PULSE_US);
+
+  // Скорости и ускорения в шагах/с и шагах/с²:
   stepX.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_X);
-  stepX.setAcceleration(MAX_ACC_MM_S2 * STEPS_PER_MM_X);
   stepY.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_Y);
-  stepY.setAcceleration(MAX_ACC_MM_S2 * STEPS_PER_MM_Y);
+
+  stepX.setAcceleration(ACCEL_MM_S2 * STEPS_PER_MM_X);
+  stepY.setAcceleration(ACCEL_MM_S2 * STEPS_PER_MM_Y);
 }
+
 
 void setup(){
   Serial.begin(250000);

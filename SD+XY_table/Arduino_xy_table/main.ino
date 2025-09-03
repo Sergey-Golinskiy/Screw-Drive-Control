@@ -11,10 +11,6 @@
 // Endstops (MIN only)
 #define X_MIN_PIN 3     // X-MIN
 #define Y_MIN_PIN 14    // Y-MIN
-#define STEP_PULSE_US 3
-#define ACCEL_MM_S2 3000.0f  // ускорение по умолчанию (мм/с²)
-
-
 
 /* ===== CONFIG: mechanics & logic ===== */
 // TR8x8, 800 imp/rev  => 800/8 = 100 steps/mm
@@ -23,16 +19,15 @@ float STEPS_PER_MM_Y = 50.0f;
 
 // мягкие стартовые параметры
 float MAX_FEED_MM_S  = 80.0f;   // мм/с
-float MAX_ACC_MM_S2  = 3000.0f;  // мм/с^2
-
+float MAX_ACC_MM_S2  = 6000.0f;  // мм/с^2
 
 // Рабочие лимиты (мм): 0…MAX (ноль на MIN)
 float X_MIN_MM = 0.0f, X_MAX_MM = 60.0f;
-float Y_MIN_MM = 0.0f, Y_MAX_MM = 120.0f;
+float Y_MIN_MM = 0.0f, Y_MAX_MM = 160.0f;
 
 // Homing scan & finesse
 float SCAN_RANGE_X_MM = 65.0f;
-float SCAN_RANGE_Y_MM = 125.0f;
+float SCAN_RANGE_Y_MM = 165.0f;
 float BACKOFF_MM      = 3.0f;
 float SLOW_MM_S       = 8.0f;
 
@@ -72,21 +67,16 @@ void setupPins(){
 void setKinematicsMax(){
   stepX.setPinsInverted(INVERT_X_DIR, false, true); // dir, step, enable
   stepY.setPinsInverted(INVERT_Y_DIR, false, true);
-
-  stepX.setMinPulseWidth(STEP_PULSE_US);
-  stepY.setMinPulseWidth(STEP_PULSE_US);
-
-  // Скорости и ускорения в шагах/с и шагах/с²:
+  stepX.setMinPulseWidth(5);  // μs
+  stepY.setMinPulseWidth(5);
   stepX.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_X);
+  stepX.setAcceleration(MAX_ACC_MM_S2 * STEPS_PER_MM_X);
   stepY.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_Y);
-
-  stepX.setAcceleration(ACCEL_MM_S2 * STEPS_PER_MM_X);
-  stepY.setAcceleration(ACCEL_MM_S2 * STEPS_PER_MM_Y);
+  stepY.setAcceleration(MAX_ACC_MM_S2 * STEPS_PER_MM_Y);
 }
 
-
 void setup(){
-  Serial.begin(250000);
+  Serial.begin(115200);
   setupPins();
   setKinematicsMax();
   Serial.println("ok READY");

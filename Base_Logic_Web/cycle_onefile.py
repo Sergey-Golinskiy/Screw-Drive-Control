@@ -44,9 +44,9 @@ SENSOR_BOUNCE_MS = 20
 POLL_INTERVAL_MS = 5
 
 # Таймауты/времена
-TIMEOUT_SEC = 5.0                 # ожидания герконов/датчиков (кроме педали)
+TIMEOUT_SEC = 2.0                 # ожидания герконов/датчиков (кроме педали)
 FEED_PULSE_MS = 200               # п.9/16/23: импульс подачі
-IND_PULSE_WINDOW_MS = 10000         # п.10/17/24: окно контроля IND_SCRW
+IND_PULSE_WINDOW_MS = 1000         # п.10/17/24: окно контроля IND_SCRW
 FREE_BURST_MS = 100               # п.14/21/28: импульс free-run
 MOVE_F = 30000                    # скорость G-команд
 

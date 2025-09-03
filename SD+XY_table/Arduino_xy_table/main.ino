@@ -14,8 +14,8 @@
 #define STEP_PULSE_US 3
 /* ===== CONFIG: mechanics & logic ===== */
 // TR8x8, 800 imp/rev  => 800/8 = 100 steps/mm
-float STEPS_PER_MM_X = 100.0f;
-float STEPS_PER_MM_Y = 100.0f;
+float STEPS_PER_MM_X = 50.0f;
+float STEPS_PER_MM_Y = 50.0f;
 
 // мягкие стартовые параметры
 float MAX_FEED_MM_S  = 80.0f;   // мм/с

@@ -14,6 +14,8 @@
 #define STEP_PULSE_US 3
 #define ACCEL_MM_S2 3000.0f  // ускорение по умолчанию (мм/с²)
 
+
+
 /* ===== CONFIG: mechanics & logic ===== */
 // TR8x8, 800 imp/rev  => 800/8 = 100 steps/mm
 float STEPS_PER_MM_X = 50.0f;

@@ -571,6 +571,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.tabService, "Service")
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.check_service_tab)
+        self.on_tab_changed(self.tabs.currentIndex())
 
         # ---------- ЛОГОТИП-ОВЕРЛЕЙ (абсолютно, не в layout) ----------
         self.logo = QLabel(self.frame)
@@ -643,6 +644,12 @@ class MainWindow(QMainWindow):
         self._position_logo()
         return super().resizeEvent(event)
 
+    def on_tab_changed(self, idx: int):
+        # проставляем property на виджет вкладок — для QSS
+        self.tabs.setProperty("active", "work" if idx == 0 else "service")
+        # нужно дернуть перекраску, чтобы QSS применился
+        self.tabs.style().unpolish(self.tabs)
+        self.tabs.style().polish(self.tabs)
 
 
 # ================== QSS ==================
@@ -654,9 +661,17 @@ APP_QSS = f"""
 
 #tabs::pane {{ border: none; }}
 QTabBar::tab {{
-    color: #cfd5e1; background: #1a1f29; padding: 12px 24px; margin-right: 4px;
-    border-top-left-radius: 10px; border-top-right-radius: 10px;
-    font-size: 28px; font-weight: 700; min-height: 80px; min-width: 200px;
+    color: #cfd5e1;
+    background: #1a1f29;
+    padding: 18px 32px;   
+    margin-right: 6px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    font-size: 28px;
+    font-weight: 700;
+    min-height: 80px;
+    min-width: 220px;
+    border: 1px solid #2a3140;
 }}
 QTabBar::tab:selected {{ background: #242a36; color: white; }}
 
@@ -687,6 +702,28 @@ QPushButton {{
     background: #2b3342; color: #e8edf8;
     border: 1px solid #3a4356; border-radius: 10px; padding: 8px 14px;
 }}
+QTabBar::tab:!selected {{
+    background: #1a1f29;
+    color: #9aa7be;
+    border-bottom: 4px solid transparent;
+}}
+
+QTabBar::tab:selected {{
+    background: #242a36;
+    color: #ffffff;
+}}
+
+QTabBar::tab:selected {{
+    border-bottom: 6px solid #1ac06b;
+}}
+
+/* если активна вкладка Service — меняем цвет полосы на сине-голубой */
+#tabs[active="service"] QTabBar::tab:selected {{
+    border-bottom: 6px solid #3aa0ff;
+}}
+
+/* убираем рамку панели содержимого вкладок */
+#tabs::pane { border: none; }
 QPushButton:disabled {{ opacity: .5; }}
 QSpinBox, QLineEdit, QComboBox {{
     background: #1f2531; color: #dbe3f5; border: 1px solid #334157; border-radius: 8px; padding: 6px 8px;

@@ -7,7 +7,7 @@ if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
     
 import os, sys, socket, re, time
 import requests
-import RPi.GPIO as GPIO
+
 from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
@@ -19,6 +19,12 @@ from PyQt5.QtWidgets import (
     QTextEdit, QSpinBox, QSizePolicy, QInputDialog
 )
 
+# --- GPIO (Raspberry Pi) ---
+try:
+    import RPi.GPIO as GPIO
+except Exception:
+    GPIO = None
+
 # Параметры «педали»
 PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
 PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
@@ -28,44 +34,6 @@ PEDAL_PULSE_MS = 120       # длительность импульса
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
-
-_gpio_initialized = False
-
-def gpio_pedal_init():
-    """Инициализация GPIO для педали."""
-    global _gpio_initialized
-    if GPIO is None or _gpio_initialized:
-        return
-    GPIO.setmode(GPIO.BCM)
-    # Педаль как выход. Исходное состояние — «не нажато».
-    inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
-    GPIO.setup(PEDAL_GPIO_PIN, GPIO.OUT, initial=inactive_level)
-    _gpio_initialized = True
-
-def gpio_pedal_pulse(ms: int = PEDAL_PULSE_MS):
-    """Короткий импульс 'нажатия' педали."""
-    if GPIO is None:
-        raise RuntimeError("RPi.GPIO не установлен. Установи: sudo apt install python3-rpi.gpio")
-    if not _gpio_initialized:
-        gpio_pedal_init()
-
-    active_level = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
-    inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
-
-    # Нажать
-    GPIO.output(PEDAL_GPIO_PIN, active_level)
-    time.sleep(ms / 1000.0)
-    # Отпустить
-    GPIO.output(PEDAL_GPIO_PIN, inactive_level)
-
-def gpio_cleanup():
-    """Освобождение GPIO при выходе."""
-    if GPIO is not None:
-        try:
-            GPIO.cleanup()
-        except Exception:
-            pass
-
 
 
 # ================== HTTP ==================
@@ -90,6 +58,37 @@ def req_post(path: str, payload=None):
     r = requests.post(url, json=payload or {}, timeout=5)
     r.raise_for_status()
     return r.json()
+
+_gpio_initialized = False
+
+def gpio_pedal_init():
+    """Инициализация GPIO для педали (выход)."""
+    global _gpio_initialized
+    if GPIO is None or _gpio_initialized:
+        return
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BCM)
+    inactive = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
+    GPIO.setup(PEDAL_GPIO_PIN, GPIO.OUT, initial=inactive)
+    _gpio_initialized = True
+
+def gpio_pedal_pulse(ms: int = PEDAL_PULSE_MS):
+    """Короткий импульс 'нажатия' педали на BCM18."""
+    if GPIO is None:
+        raise RuntimeError("RPi.GPIO не установлен. Установи: sudo apt install -y python3-rpi.gpio")
+    if not _gpio_initialized:
+        gpio_pedal_init()
+    active = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
+    inactive = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
+    GPIO.output(PEDAL_GPIO_PIN, active)
+    time.sleep(ms / 1000.0)
+    GPIO.output(PEDAL_GPIO_PIN, inactive)
+
+def gpio_cleanup():
+    if GPIO is not None:
+        try: GPIO.cleanup()
+        except Exception: pass
+
 
 class ApiClient:
     def status(self):           return req_get("status")
@@ -223,8 +222,8 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnPedal = big_button("Закрутить винты")
-        self.btnKill  = big_button("Остановить")
+        self.btnPedal = big_button("Эмуляция педали")
+        self.btnKill  = big_button("Остановить скрипт")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
@@ -236,16 +235,16 @@ class WorkTab(QWidget):
 
     def on_pedal(self):
         try:
-            gpio_pedal_pulse()  # локально замкнём пин BCM18
-            # при желании — обновить статус с контроллера
+            gpio_pedal_pulse()  # локально замкнём BCM18
             st = self.api.status()
             self.render(st)
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка запуска: {e}")
+            self.stateLabel.setText(f"Ошибка педали: {e}")
 
     def on_kill(self):
         try:
-            st = self.api.script_stop()
+            # если есть api/script/stop — добавь в ApiClient; здесь на всякий случай остановим external
+            st = self.api.ext_stop()
             self.render(st)
         except Exception as e:
             self.stateLabel.setText(f"Ошибка остановки: {e}")
@@ -253,11 +252,12 @@ class WorkTab(QWidget):
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
-        # визуально подсветим, какая «логическая» кнопка актуальна
+        # Подсветим «актуальную» кнопку
         self.btnPedal.setProperty("ok", False)
-        self.btnKill.setProperty("ok", running)   # когда что-то бежит — «остановка» актуальна
+        self.btnKill.setProperty("ok", running)
         for w in (self.btnPedal, self.btnKill):
             w.style().unpolish(w); w.style().polish(w)
+
 
 
 class VirtualKeyboard(QFrame):
@@ -611,13 +611,13 @@ class ServiceTab(QWidget):
 
 
 class StartTab(QWidget):
-    """Третья вкладка: только большие кнопки Start/Stop external."""
+    """Третья вкладка: большие кнопки Start/Stop external."""
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api
-        self.on_started = None  # коллбек, который выставит MainWindow в режим work
-        root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
+        self.on_started = None  # коллбек задаст MainWindow
 
+        root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnStart = big_button("Start external")
         self.btnStop  = big_button("Stop external")
@@ -634,15 +634,18 @@ class StartTab(QWidget):
         try:
             data = self.api.ext_start()
             self.render(data)
-            # если реально стартануло — сразу переключить на вкладку Work (без ожидания таймера)
+            # мгновенно уходим на Work, если реально запустилось
             if isinstance(data, dict) and data.get("external_running") and callable(self.on_started):
                 self.on_started()
         except Exception as e:
             self.stateLabel.setText(f"Ошибка запуска: {e}")
 
     def on_stop(self):
-        try:    self.render(self.api.ext_stop())
-        except Exception as e: self.stateLabel.setText(f"Ошибка остановки: {e}")
+        try:
+            data = self.api.ext_stop()
+            self.render(data)
+        except Exception as e:
+            self.stateLabel.setText(f"Ошибка остановки: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
@@ -651,6 +654,7 @@ class StartTab(QWidget):
         self.btnStop.setProperty("ok", not running)
         for w in (self.btnStart, self.btnStop):
             w.style().unpolish(w); w.style().polish(w)
+
 
 
 # ================== Main Window ==================
@@ -678,13 +682,18 @@ class MainWindow(QMainWindow):
         self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
 
-        tabs.addTab(self.tabWork, "Work")
-        tabs.addTab(self.tabStart, "Start/Stop")
-        tabs.addTab(self.tabService, "Service")
+        tabs.addTab(self.tabWork,   "Work")     # idx 0
+        tabs.addTab(self.tabStart,  "Старт")    # idx 1
+        tabs.addTab(self.tabService,"Service")  # idx 2
+
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.check_service_tab)
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
+        self._was_running = False
+
+         #мгновенный переход на Work после успешного старта в StartTab
+        self.tabStart.on_started = lambda: self.tabs.setCurrentIndex(0)
 
         # ---------- ЛОГОТИП-ОВЕРЛЕЙ (абсолютно, не в layout) ----------
         self.logo = QLabel(self.frame)
@@ -700,9 +709,6 @@ class MainWindow(QMainWindow):
         self._logo_margin_right = 50
         self._position_logo()  # первичное позиционирование
 
-        # мгновенное переключение на Work после удачного старта
-        if hasattr(self, "tabStart"):
-            self.tabStart.on_started = lambda: self.tabs.setCurrentIndex(0)
 
         # Таймер опроса API
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
@@ -725,38 +731,33 @@ class MainWindow(QMainWindow):
             self.set_border("alarm")
             return
 
+        # обновление вкладок
         self.tabWork.render(st)
-        if hasattr(self, "tabStart"):
-            self.tabStart.render(st)
+        self.tabStart.render(st)
         self.tabService.render(st)
 
         running = bool(st.get("external_running"))
         sensors = st.get("sensors", {})
         any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
-
-        # Логика рамки и блокировок
         if running:
             self.set_border("ok")
-            # Блокируем Старт (idx=1) и Service (idx=2)
+            # блокируем Старт и Service
             self.tabs.setTabEnabled(1, False)
             self.tabs.setTabEnabled(2, False)
-
-        # Если только что перешли в RUNNING — перекинуть на Work (idx=0)
+            # если только что перешли в RUNNING — уйти на Work
             if not self._was_running and self.tabs.currentIndex() != 0:
                 self.tabs.setCurrentIndex(0)
         else:
-            # Разрешаем Старт и Service
             self.tabs.setTabEnabled(1, True)
             self.tabs.setTabEnabled(2, True)
             self.set_border("alarm" if any_alarm else "idle")
 
-        # Запомнить текущее состояние для детектора фронта
         self._was_running = running
 
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):
-        if idx == 2:  # теперь Service = 2
+        if idx == 2:
             dlg = PasswordDialog(self)
             pw = dlg.get_password()
             if pw != "1234":
@@ -778,7 +779,6 @@ class MainWindow(QMainWindow):
         return super().resizeEvent(event)
 
     def on_tab_changed(self, idx: int):
-        # work / start / service
         active = "work" if idx == 0 else ("start" if idx == 1 else "service")
         self.tabs.setProperty("active", active)
         self.tabs.style().unpolish(self.tabs)
@@ -877,9 +877,9 @@ def main():
     app.setOverrideCursor(QCursor(Qt.BlankCursor))  # спрятать курсор
     app.setStyleSheet(APP_QSS)
     f = QFont(); f.setPointSize(12); app.setFont(f)
+    w = MainWindow(); w.show()
     # Корректная очистка GPIO при выходе
     app.aboutToQuit.connect(gpio_cleanup)
-    w = MainWindow(); w.show()
     sys.exit(app.exec_())
 
 if __name__ == "__main__":

@@ -552,40 +552,17 @@ class MainWindow(QMainWindow):
         self.setObjectName("root")
         self.api = ApiClient()
 
+        # Центральный контейнер
         self.frame = QFrame(); self.frame.setObjectName("rootFrame")
         self.frame.setProperty("state", "idle")
         self.setCentralWidget(self.frame)
 
-        root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W,BORDER_W,BORDER_W,BORDER_W)
-        # Верхняя панель с логотипом
-        topbar = QHBoxLayout()
-        topbar.setContentsMargins(0,0,0,0)
-        topbar.setSpacing(0)
+        # Основной лэйаут (без логотипа!)
+        root = QVBoxLayout(self.frame)
+        root.setContentsMargins(BORDER_W, BORDER_W, BORDER_W, BORDER_W)
 
-        logo = QLabel()
-        pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
-        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
-        logo.setPixmap(pix)
-        logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        self.logo.setStyleSheet("background: transparent;")
-        self.logo.move(self.width() - self.logo.width() - 20, 10)
-        self.logo.raise_()  # на передний план
-
-        # Добавим отступы сверху и справа
-        wrapper = QHBoxLayout()
-        wrapper.setContentsMargins(0, 0, 0, 0)  # layout без внешних отступов
-        logo.setStyleSheet("position: absolute; background: transparent; padding-top: 50px; padding-right: 20px;")
-        wrapper.addStretch(1)
-        wrapper.addWidget(logo)
-
-        root.addLayout(wrapper)
-
-
-        root.addLayout(topbar)
-
+        # Вкладки
         tabs = QTabWidget(); tabs.setObjectName("tabs")
-        root.addWidget(tabs)
-        root.addLayout(topbar)
         root.addWidget(tabs)
 
         self.tabWork    = WorkTab(self.api)
@@ -595,21 +572,39 @@ class MainWindow(QMainWindow):
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.check_service_tab)
 
+        # ---------- ЛОГОТИП-ОВЕРЛЕЙ (абсолютно, не в layout) ----------
+        self.logo = QLabel(self.frame)
+        logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        pix = QPixmap(logo_path).scaledToHeight(60, Qt.SmoothTransformation)
+        self.logo.setPixmap(pix)
+        self.logo.setStyleSheet("background: transparent;")
+        self.logo.adjustSize()
+        self.logo.raise_()  # поверх всего
+
+        # Отступы логотипа
+        self._logo_margin_top = 10
+        self._logo_margin_right = 20
+        self._position_logo()  # первичное позиционирование
+
+        # Таймер опроса API
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
 
-        self.showFullScreen()  # полноэкранный режим под тач
+        # Полноэкранный режим под тач
+        self.showFullScreen()
 
+    # Позиционирование рамки/бордера
     def set_border(self, state: str):
         self.frame.setProperty("state", state)
         self.frame.style().unpolish(self.frame); self.frame.style().polish(self.frame)
 
+    # Перерисовка/логика статуса
     def refresh(self):
         try:
             st = self.api.status()
         except Exception:
-            self.set_border("alarm")  # нет связи — красная рамка
+            self.set_border("alarm")
             return
 
         self.tabWork.render(st)
@@ -621,24 +616,33 @@ class MainWindow(QMainWindow):
 
         if running:
             self.set_border("ok")
-            self.tabs.setTabEnabled(1, False)  # блокируем Service во время работы
+            self.tabs.setTabEnabled(1, False)
         else:
             self.tabs.setTabEnabled(1, True)
-            if any_alarm:
-                self.set_border("alarm")
-            else:
-                self.set_border("idle")
-    
+            self.set_border("alarm" if any_alarm else "idle")
+
+    # Пароль на вкладку Service
     def check_service_tab(self, idx: int):
         if idx == 1:
             dlg = PasswordDialog(self)
             pw = dlg.get_password()
-            if pw != "1234":   # ← сюда подставь свой пароль
+            if pw != "1234":   # ← твой пароль
                 self.tabs.setCurrentIndex(0)
 
+    # Абсолютное позиционирование логотипа
+    def _position_logo(self):
+        if not hasattr(self, "logo") or self.logo.pixmap() is None:
+            return
+        r = self.frame.rect()
+        x = r.right() - self.logo.width() - self._logo_margin_right
+        y = r.top() + self._logo_margin_top
+        self.logo.move(x, y)
+
+    # Держим логотип в углу при ресайзе
     def resizeEvent(self, event):
-        self.logo.move(self.width() - self.logo.width() - 20, 10)
+        self._position_logo()
         return super().resizeEvent(event)
+
 
 
 # ================== QSS ==================

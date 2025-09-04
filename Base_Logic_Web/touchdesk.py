@@ -194,6 +194,80 @@ class WorkTab(QWidget):
         for w in (self.btnStart, self.btnStop):
             w.style().unpolish(w); w.style().polish(w)
 
+class VirtualKeyboard(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("vkRoot")
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setFrameShape(QFrame.NoFrame)
+
+        self.target: QLineEdit | None = None
+        lay = QVBoxLayout(self); lay.setContentsMargins(10,10,10,10); lay.setSpacing(8)
+
+        # Минимальная раскладка
+        rows = [
+            list("1234567890"),
+            list("qwertyuiop"),
+            list("asdfghjkl"),
+            list("zxcvbnm"),
+        ]
+        grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
+        r = 0
+        for row in rows:
+            c = 0
+            for ch in row:
+                b = QPushButton(ch)
+                b.setFixedHeight(44)
+                b.clicked.connect(lambda _, x=ch: self._insert(x))
+                grid.addWidget(b, r, c); c += 1
+            r += 1
+        lay.addLayout(grid)
+
+        # нижний ряд
+        row = QHBoxLayout()
+        self.btnSpace = QPushButton("Space")
+        self.btnBack  = QPushButton("Backspace")
+        self.btnClear = QPushButton("Clear")
+        self.btnEnter = QPushButton("Enter")
+        for b in (self.btnSpace, self.btnBack, self.btnClear, self.btnEnter):
+            b.setFixedHeight(44); row.addWidget(b)
+        lay.addLayout(row)
+
+        self.btnSpace.clicked.connect(lambda: self._insert(" "))
+        self.btnBack.clicked.connect(self._backspace)
+        self.btnClear.clicked.connect(self._clear)
+        self.btnEnter.clicked.connect(self._enter)
+
+        self.setStyleSheet("""
+        #vkRoot { background:#141923; border:2px solid #2a3140; border-radius:12px; }
+        QPushButton { background:#2b3342; color:#e8edf8; border:1px solid #3a4356;
+                      border-radius:8px; padding:6px 10px; font-size:16px; }
+        QPushButton:pressed { background:#354159; }
+        """)
+
+        self.on_enter = None
+
+    def _insert(self, s): 
+        if self.target: self.target.insert(s)
+    def _backspace(self):
+        if self.target:
+            t = self.target.text()
+            if t: self.target.setText(t[:-1])
+    def _clear(self):
+        if self.target: self.target.clear()
+    def _enter(self):
+        self.hide()
+        if callable(self.on_enter): self.on_enter()
+
+    def show_for(self, line_edit: QLineEdit, parent_widget: QWidget):
+        self.target = line_edit
+        self.adjustSize()
+        g = parent_widget.frameGeometry()
+        kb_h = self.height()
+        self.setGeometry(g.x()+20, g.y()+g.height()-kb_h-20, g.width()-40, kb_h)
+        self.show()
+
+
 class ServiceTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
@@ -239,7 +313,10 @@ class ServiceTab(QWidget):
         self.btnSend = QPushButton("Отправить")
         send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
         sc.addLayout(send)
-
+# экранная клавиатура
+        self.vkeyboard = VirtualKeyboard(self)
+        self.vkeyboard.on_enter = self.send_serial
+        self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
         root.addLayout(left, 2)
@@ -305,6 +382,8 @@ class ServiceTab(QWidget):
         if text:
             self.reader.write(text)
             self.edSend.clear()
+            self.vkeyboard.hide()
+            self.edSend.clearFocus()
 
     def serial_opened(self, ok: bool):
         self.btnOpen.setEnabled(not ok)
@@ -357,6 +436,14 @@ class ServiceTab(QWidget):
             for w in (spin, btnOn, btnOff, btnPulse):
                 w.setEnabled(not external)
             lblState.style().unpolish(lblState); lblState.style().polish(lblState)
+    
+    def eventFilter(self, obj, event):
+        if obj is self.edSend:
+            if event.type() == event.FocusIn:
+                self.vkeyboard.show_for(self.edSend, self.window())
+            elif event.type() == event.FocusOut:
+                self.vkeyboard.hide()
+        return super().eventFilter(obj, event)
 
 # ================== Main Window ==================
 class MainWindow(QMainWindow):
@@ -465,6 +552,8 @@ QTextEdit {{ background: #0f141c; color: #d3ddf0; border: 1px solid #334157; bor
 
 def main():
     app = QApplication(sys.argv)
+    from PyQt5.QtGui import QCursor
+    app.setOverrideCursor(QCursor(Qt.BlankCursor))  # спрятать курсор
     app.setStyleSheet(APP_QSS)
     f = QFont(); f.setPointSize(12); app.setFont(f)
     w = MainWindow(); w.show()

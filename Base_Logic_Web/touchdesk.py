@@ -701,8 +701,8 @@ class MainWindow(QMainWindow):
         self.logo.raise_()  # поверх всего
 
         # Отступы логотипа
-        self._logo_margin_top = 50
-        self._logo_margin_right = 30
+        self._logo_margin_top = 65
+        self._logo_margin_right = 50
         self._position_logo()  # первичное позиционирование
 
         # мгновенное переключение на Work после удачного старта

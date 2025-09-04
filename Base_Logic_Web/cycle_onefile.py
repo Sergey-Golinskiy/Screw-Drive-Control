@@ -16,6 +16,12 @@ try:
     import serial
 except Exception:
     serial = None
+
+import socket
+try:
+    import socket
+except Exception:
+    socket = None
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 

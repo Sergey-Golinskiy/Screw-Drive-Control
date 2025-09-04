@@ -208,10 +208,10 @@ class VirtualKeyboard(QFrame):
         # Минимальная раскладка
         rows = [
             list("1234567890"),
-            list("qwertyuiop"),
-            list("asdfghjkl"),
-            list("zxcvbnm"),
-        ]
+            list("QWERTYUIOP"),
+            list("ASDFGHJKL"),
+            list("ZXCVBNM"),
+]
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         r = 0
         for row in rows:

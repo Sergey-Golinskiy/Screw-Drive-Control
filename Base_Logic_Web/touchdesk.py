@@ -293,6 +293,9 @@ class PasswordDialog(QDialog):
         self.edit.setMinimumWidth(400)    # ширина побольше
         self.edit.setAlignment(Qt.AlignCenter)
         self.edit.setObjectName("pwEdit")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         # Экранная клавиатура (наша)
         self.vkbd = VirtualKeyboard(self)

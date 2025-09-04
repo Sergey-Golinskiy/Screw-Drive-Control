@@ -198,7 +198,8 @@ class VirtualKeyboard(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("vkRoot")
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.Tool | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setParent(parent, Qt.Window)  # чтобы всегда быть поверх родительского окна
         self.setFrameShape(QFrame.NoFrame)
 
         self.target: QLineEdit | None = None
@@ -262,10 +263,15 @@ class VirtualKeyboard(QFrame):
     def show_for(self, line_edit: QLineEdit, parent_widget: QWidget):
         self.target = line_edit
         self.adjustSize()
+
         g = parent_widget.frameGeometry()
-        kb_h = self.height()
-        self.setGeometry(g.x()+20, g.y()+g.height()-kb_h-20, g.width()-40, kb_h)
+        kb_w = g.width() // 2          # половина ширины
+        kb_h = g.height() // 3         # высота, например, 1/3 экрана
+        x = g.x()                      # левый край
+        y = g.y() + g.height() - kb_h  # прижать к низу
+        self.setGeometry(x, y, kb_w, kb_h)
         self.show()
+        self.raise_()                  # на самый верх
 
 
 class ServiceTab(QWidget):

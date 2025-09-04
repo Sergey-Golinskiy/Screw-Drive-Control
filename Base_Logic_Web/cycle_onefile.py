@@ -73,6 +73,8 @@ def relay_gpio_value(on: bool) -> int:
 
 # =====================[ IO КОНТРОЛЛЕР ]=======================
 class IOController:
+    trg = StartTrigger("127.0.0.1", 8765)
+    trg.start()
     def __init__(self):
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
@@ -254,49 +256,16 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             return False
         time.sleep(0.01)
 
-def wait_pedal_or_command(io: IOController, trg: StartTrigger) -> bool:
-    """
-    Ждём новую педаль (OPEN->CLOSE) ИЛИ команду START от десктопа.
-    Возвращает True, когда любой из источников сработал.
-    """
-    # сначала убедимся, что педаль была отпущена (OPEN), чтобы ловить именно НОВОЕ нажатие
-    while True:
-        if not io.sensor_state("PED_START"):  # OPEN
-            break
-        if trg.event.is_set():
-            trg.trigger_once()
-            return True
-        time.sleep(0.01)
-
-    # теперь ждём либо CLOSE по педали, либо команду:
-    while True:
-        if io.sensor_state("PED_START"):  # CLOSE
-            return True
-        if trg.event.is_set():
-            trg.trigger_once()
-            return True
-        time.sleep(0.01)
-
-
-def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool:
-    """Ждём, что датчик станет CLOSE хотя бы импульсно в течение window_ms."""
-    t_end = time.time() + (window_ms / 1000.0)
-    while time.time() < t_end:
-        if io.sensor_state(sensor_name):  # CLOSE
-            return True
-        time.sleep(0.005)
-    return False
-
 class StartTrigger:
     """
-    Отдельный поток слушает локальный TCP-порт и ставит .event при получении команды "START".
+    Слушает локальный TCP-порт и подаёт .event при получении команды "START".
     """
     def __init__(self, host: str = "127.0.0.1", port: int = 8765):
         self.host = host
         self.port = port
         self.event = threading.Event()
-        self._thr: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._thr: Optional[threading.Thread] = None
 
     def start(self):
         if self._thr and self._thr.is_alive():
@@ -306,7 +275,7 @@ class StartTrigger:
 
     def stop(self):
         self._stop.set()
-        # будим accept (короткий коннект)
+        # Разбудим accept() коротким коннектом
         try:
             with socket.create_connection((self.host, self.port), timeout=0.2):
                 pass
@@ -316,19 +285,17 @@ class StartTrigger:
             self._thr.join(timeout=0.5)
 
     def trigger_once(self):
-        """Снять флаг готовности после использования."""
         self.event.clear()
 
     def _server_loop(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # реюз порта на перезапусках
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.host, self.port))
         s.listen(1)
         s.settimeout(0.5)
         while not self._stop.is_set():
             try:
-                conn, addr = s.accept()
+                conn, _ = s.accept()
             except socket.timeout:
                 continue
             with conn:
@@ -342,6 +309,35 @@ class StartTrigger:
                 except Exception:
                     pass
         s.close()
+
+
+def wait_pedal_or_command(io: IOController, trg: "StartTrigger") -> bool:
+   
+    while True:
+        if not io.sensor_state("PED_START"): 
+            break
+        if trg.event.is_set():
+            trg.trigger_once()
+            return True
+        time.sleep(0.01)
+
+    while True:
+        if io.sensor_state("PED_START"): 
+            return True
+        if trg.event.is_set():
+            trg.trigger_once()
+            return True
+        time.sleep(0.01)
+
+
+def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool:
+    """Ждём, что датчик станет CLOSE хотя бы импульсно в течение window_ms."""
+    t_end = time.time() + (window_ms / 1000.0)
+    while time.time() < t_end:
+        if io.sensor_state(sensor_name): 
+            return True
+        time.sleep(0.005)
+    return False
 
 def feed_until_detect(io: IOController):
     """Подача винта (п.9/16/23) с повтором, пока не придёт импульс IND_SCRW (п.10/17/24)."""

@@ -587,11 +587,14 @@ class StartTab(QWidget):
         self.btnStop.clicked.connect(self.on_stop)
 
     def on_start(self):
-        try:    self.render(self.api.ext_start())
-        except Exception as e: self.stateLabel.setText(f"Ошибка запуска: {e}")
-        if isinstance(data, dict) and data.get("external_running"):
-            if callable(self.on_started):
-                self.on_started()  # попросить главное окно переключить на Work
+        try:
+            data = self.api.ext_start()
+            self.render(data)
+            # если реально стартануло — сразу переключить на вкладку Work (без ожидания таймера)
+            if isinstance(data, dict) and data.get("external_running") and callable(self.on_started):
+                self.on_started()
+        except Exception as e:
+            self.stateLabel.setText(f"Ошибка запуска: {e}")
 
     def on_stop(self):
         try:    self.render(self.api.ext_stop())
@@ -687,11 +690,6 @@ class MainWindow(QMainWindow):
         sensors = st.get("sensors", {})
         any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
-        # Обновить вкладки
-        self.tabWork.render(st)
-        if hasattr(self, "tabStart"):
-            self.tabStart.render(st)
-        self.tabService.render(st)
 
         # Логика рамки и блокировок
         if running:
@@ -740,7 +738,7 @@ class MainWindow(QMainWindow):
         active = "work" if idx == 0 else ("start" if idx == 1 else "service")
         self.tabs.setProperty("active", active)
         self.tabs.style().unpolish(self.tabs)
-        elf.tabs.style().polish(self.tabs)
+        self.tabs.style().polish(self.tabs)
 
 
 

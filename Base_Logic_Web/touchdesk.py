@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
+# если нет переменных DISPLAY/WAYLAND_DISPLAY — поднимем eglfs
+if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    os.environ.setdefault("QT_QPA_PLATFORM", "eglfs")
+    
 import os, sys, socket, re, time
 import requests
 

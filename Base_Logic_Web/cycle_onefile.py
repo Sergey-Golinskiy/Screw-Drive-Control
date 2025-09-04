@@ -3,7 +3,10 @@
 import time
 import threading
 from datetime import datetime
-import socket
+try:
+    import serial
+except Exception:
+    serial = None
 from typing import Optional
 import RPi.GPIO as GPIO
 
@@ -300,6 +303,7 @@ class StartTrigger:
                 try:
                     data = conn.recv(64)
                     if data and b"START" in data.upper():
+                        print("[trigger] Получена команда START от UI")
                         self.event.set()
                         conn.sendall(b"OK\n")
                     else:

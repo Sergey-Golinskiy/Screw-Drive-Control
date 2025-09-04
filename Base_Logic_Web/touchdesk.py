@@ -15,7 +15,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
-    QTextEdit, QSpinBox, QSizePolicy
+    QTextEdit, QSpinBox, QSizePolicy, QInputDialog
 )
 
 # ================== Конфиг ==================
@@ -473,6 +473,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.tabWork, "Work")
         tabs.addTab(self.tabService, "Service")
         self.tabs = tabs
+        self.tabs.currentChanged.connect(self.check_service_tab)
 
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
@@ -507,6 +508,17 @@ class MainWindow(QMainWindow):
                 self.set_border("alarm")
             else:
                 self.set_border("idle")
+    
+    def check_service_tab(self, idx: int):
+    # Если пользователь выбирает вкладку Service (она вторая, индекс 1)
+        if idx == 1:
+            pw, accepted = QInputDialog.getText(
+                self, "Доступ по паролю", "Введите пароль:", QLineEdit.Password
+            )
+            if not (accepted and pw == "1234"):  # ← задай свой пароль
+                # если пароль не введён или неверный — вернём обратно на Work
+                self.tabs.setCurrentIndex(0)
+
 
 # ================== QSS ==================
 APP_QSS = f"""
@@ -519,6 +531,7 @@ APP_QSS = f"""
 QTabBar::tab {{
     color: #cfd5e1; background: #1a1f29; padding: 12px 24px; margin-right: 4px;
     border-top-left-radius: 10px; border-top-right-radius: 10px;
+    font-size: 28px; font-weight: 700;
 }}
 QTabBar::tab:selected {{ background: #242a36; color: white; }}
 

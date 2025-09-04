@@ -567,6 +567,9 @@ class MainWindow(QMainWindow):
         pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
         logo.setPixmap(pix)
         logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        self.logo.setStyleSheet("background: transparent;")
+        self.logo.move(self.width() - self.logo.width() - 20, 10)
+        self.logo.raise_()  # на передний план
 
         # Добавим отступы сверху и справа
         wrapper = QHBoxLayout()
@@ -633,6 +636,9 @@ class MainWindow(QMainWindow):
             if pw != "1234":   # ← сюда подставь свой пароль
                 self.tabs.setCurrentIndex(0)
 
+    def resizeEvent(self, event):
+        self.logo.move(self.width() - self.logo.width() - 20, 10)
+        return super().resizeEvent(event)
 
 
 # ================== QSS ==================

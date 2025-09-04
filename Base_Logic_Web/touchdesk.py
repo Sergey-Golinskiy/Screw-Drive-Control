@@ -558,31 +558,7 @@ class MainWindow(QMainWindow):
 
         root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W,BORDER_W,BORDER_W,BORDER_W)
         # Верхняя панель с логотипом
-        topbar = QHBoxLayout()
-        topbar.setContentsMargins(0,0,0,0)
-        topbar.setSpacing(0)
 
-        logo = QLabel()
-        pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
-        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
-        logo.setPixmap(pix)
-        logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
-
-        # Добавим отступы сверху и справа
-        wrapper = QHBoxLayout()
-        wrapper.setContentsMargins(0, 5, 5, 0)  # top=10px, right=20px
-        wrapper.addStretch(1)
-        wrapper.addWidget(logo)
-
-        root.addLayout(wrapper)
-
-
-        root.addLayout(topbar)
-
-        tabs = QTabWidget(); tabs.setObjectName("tabs")
-        root.addWidget(tabs)
-        root.addLayout(topbar)
-        root.addWidget(tabs)
 
         self.tabWork    = WorkTab(self.api)
         self.tabService = ServiceTab(self.api)

@@ -45,6 +45,28 @@ def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=
     except Exception:
         return False
 
+def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+def send_start_trigger_with_retry(host="127.0.0.1", port=8765, payload=b"START\n",
+                                  timeout=0.5, retries=15, delay=0.2) -> bool:
+    for _ in range(retries):
+        try:
+            with socket.create_connection((host, port), timeout=timeout) as s:
+                s.sendall(payload)
+                s.settimeout(timeout)
+                resp = s.recv(64)
+                if b"OK" in resp.upper():
+                    return True
+        except Exception:
+            pass
+        time.sleep(delay)
+    return False
+
 # ================== HTTP ==================
 def get_local_ip() -> str:
     try:
@@ -644,16 +666,47 @@ class StartTab(QWidget):
 
     def on_start(self):
         try:
-            ok = send_start_trigger()
-            if ok:
-                self.stateLabel.setText("Команда START отправлена (локально)")
-                # Можно сразу показать статус "RUNNING" оптимистично — но корректнее дождаться опроса
-                if callable(self.on_started):
-                    self.on_started()  # сразу уходим на Work
-            else:
-                self.stateLabel.setText("Не удалось отправить START (нет связи с циклом)")
+            # 1) Получим текущий статус
+            st0 = {}
+            try:
+                st0 = self.api.status()
+            except Exception:
+                pass
+            running = bool(st0.get("external_running"))
+
+            # 2) Если внешний процесс ещё не запущен — запустим его
+            if not running:
+                self.stateLabel.setText("Запускаю внешний скрипт…")
+                try:
+                    self.api.ext_start()   # /api/ext/start из web_ui.py
+                except Exception as e:
+                    self.stateLabel.setText(f"Не удалось запустить внешний скрипт: {e}")
+                    return
+
+            # 3) Ждём, пока поднимется listener 127.0.0.1:8765 (до ~3 сек)
+            self.stateLabel.setText("Ожидаю готовность цикла…")
+            t0 = time.time()
+            while not is_port_open() and time.time() - t0 < 3.0:
+                QApplication.processEvents()
+                time.sleep(0.1)
+            if not is_port_open():
+                self.stateLabel.setText("Цикл не открыл порт (8765). Попробуйте ещё раз.")
+                return
+
+            # 4) Шлём START с ретраями (как в веб-UI)
+            ok = send_start_trigger_with_retry()
+            if not ok:
+                self.stateLabel.setText("Не удалось отправить START (нет ответа)")
+                return
+
+            self.stateLabel.setText("Команда START отправлена")
+            # 5) Мгновенно перейти на Work (ваш ранее заданный UX)
+            if callable(self.on_started):
+                self.on_started()
+
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка отправки START: {e}")
+            self.stateLabel.setText(f"Ошибка: {e}")
+
 
 
     def on_stop(self):

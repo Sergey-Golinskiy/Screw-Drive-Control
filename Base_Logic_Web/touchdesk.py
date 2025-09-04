@@ -235,11 +235,26 @@ class WorkTab(QWidget):
 
     def on_pedal(self):
         try:
-            gpio_pedal_pulse()  # локально замкнём BCM18
+            # гарантируем инициализацию (на случай, если main() не успел)
+            gpio_pedal_init()
+
+            # уровни для "нажатия"/"отпускания"
+            active_level   = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
+            inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
+
+            # нажали
+            GPIO.output(PEDAL_GPIO_PIN, active_level)
+            # отпустим через PEDAL_PULSE_MS миллисекунд — БЕЗ time.sleep, не блокируя UI
+            QTimer.singleShot(PEDAL_PULSE_MS, lambda: GPIO.output(PEDAL_GPIO_PIN, inactive_level))
+
+            # опционально: подсказка в UI
+            self.stateLabel.setText(f"Педаль: импульс {PEDAL_PULSE_MS} мс на GPIO{PEDAL_GPIO_PIN}")
+            # и, если нужно, подтянем статус из контроллера
             st = self.api.status()
             self.render(st)
         except Exception as e:
             self.stateLabel.setText(f"Ошибка педали: {e}")
+
 
     def on_kill(self):
         try:

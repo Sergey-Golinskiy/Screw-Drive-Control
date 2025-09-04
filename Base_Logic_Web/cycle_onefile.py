@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+TRIGGER_HOST = "127.0.0.1"
+TRIGGER_PORT = 8765
+
 import time
 import threading
 from datetime import datetime
@@ -67,6 +70,12 @@ SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
 
+def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
 # =====================[ ВСПОМОГАТЕЛЬНОЕ ]=====================
 def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -258,10 +267,7 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
         time.sleep(0.01)
 
 class StartTrigger:
-    """
-    Слушает локальный TCP-порт и подаёт .event при получении команды "START".
-    """
-    def __init__(self, host: str = "127.0.0.1", port: int = 8765):
+    def __init__(self, host: str = TRIGGER_HOST, port: int = TRIGGER_PORT):
         self.host = host
         self.port = port
         self.event = threading.Event()
@@ -276,7 +282,7 @@ class StartTrigger:
 
     def stop(self):
         self._stop.set()
-        # Разбудим accept() коротким коннектом
+        # разбудить accept()
         try:
             with socket.create_connection((self.host, self.port), timeout=0.2):
                 pass
@@ -289,16 +295,26 @@ class StartTrigger:
         self.event.clear()
 
     def _server_loop(self):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((self.host, self.port))
-        s.listen(1)
-        s.settimeout(0.5)
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((self.host, self.port))
+            s.listen(1)
+            s.settimeout(0.5)
+            print(f"[trigger] LISTEN {self.host}:{self.port}")
+        except Exception as e:
+            print(f"[trigger] LISTEN FAILED on {self.host}:{self.port}: {e}")
+            return
+
         while not self._stop.is_set():
             try:
                 conn, _ = s.accept()
             except socket.timeout:
                 continue
+            except Exception as e:
+                print(f"[trigger] accept error: {e}")
+                continue
+
             with conn:
                 try:
                     data = conn.recv(64)
@@ -308,9 +324,14 @@ class StartTrigger:
                         conn.sendall(b"OK\n")
                     else:
                         conn.sendall(b"ERR\n")
-                except Exception:
-                    pass
-        s.close()
+                except Exception as e:
+                    print(f"[trigger] recv/send error: {e}")
+        try:
+            s.close()
+        except Exception:
+            pass
+        print("[trigger] listener stopped")
+
 
 
 def wait_pedal_or_command(io: IOController, trg: "StartTrigger") -> bool:
@@ -388,7 +409,7 @@ def torque_fallback(io: IOController):
 # =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
     io = IOController()
-    trg = StartTrigger(host="127.0.0.1", port=8765)
+    trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
     # --- Открыть serial и держать открытым до завершения процесса ---
     print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
@@ -411,6 +432,7 @@ def main():
 
     try:
         print("=== Старт скрипта ===")
+
 
         # 3. G28 — хоуминг, ждём ok
         send_cmd(ser, "G28")
@@ -441,6 +463,7 @@ def main():
 
         # ---------- Основной цикл: п.7..29 ----------
         while True:
+            
             # 7. Ждём нажатия педальки
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
             if not wait_pedal_or_command(io, trg):
@@ -486,9 +509,12 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        # ВАЖНО: по шпаргалке — порт держим открытым, ser.close() не вызываем
         trg.stop()
         io.cleanup()
+        try:
+            ser.close()
+        except Exception:
+            pass
         print("=== Остановлено. GPIO освобождены ===")
 
 if __name__ == "__main__":

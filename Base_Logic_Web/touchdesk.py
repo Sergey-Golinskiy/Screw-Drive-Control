@@ -239,14 +239,14 @@ class WorkTab(QWidget):
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
 
-        def on_pedal(self):
-            try:
-                gpio_pedal_pulse()  # локально замкнём пин BCM18
-                # при желании — обновить статус с контроллера
-                st = self.api.status()
-                self.render(st)
-            except Exception as e:
-                self.stateLabel.setText(f"Ошибка запуска: {e}")
+    def on_pedal(self):
+        try:
+            gpio_pedal_pulse()  # локально замкнём пин BCM18
+            # при желании — обновить статус с контроллера
+            st = self.api.status()
+            self.render(st)
+        except Exception as e:
+            self.stateLabel.setText(f"Ошибка запуска: {e}")
 
     def on_kill(self):
         try:

@@ -702,6 +702,7 @@ QPushButton {{
     background: #2b3342; color: #e8edf8;
     border: 1px solid #3a4356; border-radius: 10px; padding: 8px 14px;
 }}
+
 QTabBar::tab:!selected {{
     background: #1a1f29;
     color: #9aa7be;
@@ -716,14 +717,13 @@ QTabBar::tab:selected {{
 QTabBar::tab:selected {{
     border-bottom: 6px solid #1ac06b;
 }}
+#tabs[active="work"] QTabBar::tab:selected {{
+    border-bottom: 6px solid #1ac06b;}}
 
-/* если активна вкладка Service — меняем цвет полосы на сине-голубой */
 #tabs[active="service"] QTabBar::tab:selected {{
     border-bottom: 6px solid #3aa0ff;
 }}
-
-/* убираем рамку панели содержимого вкладок */
-#tabs::pane { border: none; }
+#tabs::pane {{ border: none; }}
 QPushButton:disabled {{ opacity: .5; }}
 QSpinBox, QLineEdit, QComboBox {{
     background: #1f2531; color: #dbe3f5; border: 1px solid #334157; border-radius: 8px; padding: 6px 8px;

@@ -3,7 +3,8 @@
 import time
 import threading
 from datetime import datetime
-
+import socket
+from typing import Optional
 import RPi.GPIO as GPIO
 
 # ===[ ДОБАВЛЕНО: serial ]===
@@ -253,6 +254,30 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             return False
         time.sleep(0.01)
 
+def wait_pedal_or_command(io: IOController, trg: StartTrigger) -> bool:
+    """
+    Ждём новую педаль (OPEN->CLOSE) ИЛИ команду START от десктопа.
+    Возвращает True, когда любой из источников сработал.
+    """
+    # сначала убедимся, что педаль была отпущена (OPEN), чтобы ловить именно НОВОЕ нажатие
+    while True:
+        if not io.sensor_state("PED_START"):  # OPEN
+            break
+        if trg.event.is_set():
+            trg.trigger_once()
+            return True
+        time.sleep(0.01)
+
+    # теперь ждём либо CLOSE по педали, либо команду:
+    while True:
+        if io.sensor_state("PED_START"):  # CLOSE
+            return True
+        if trg.event.is_set():
+            trg.trigger_once()
+            return True
+        time.sleep(0.01)
+
+
 def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool:
     """Ждём, что датчик станет CLOSE хотя бы импульсно в течение window_ms."""
     t_end = time.time() + (window_ms / 1000.0)
@@ -261,6 +286,62 @@ def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool
             return True
         time.sleep(0.005)
     return False
+
+class StartTrigger:
+    """
+    Отдельный поток слушает локальный TCP-порт и ставит .event при получении команды "START".
+    """
+    def __init__(self, host: str = "127.0.0.1", port: int = 8765):
+        self.host = host
+        self.port = port
+        self.event = threading.Event()
+        self._thr: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
+    def start(self):
+        if self._thr and self._thr.is_alive():
+            return
+        self._thr = threading.Thread(target=self._server_loop, daemon=True)
+        self._thr.start()
+
+    def stop(self):
+        self._stop.set()
+        # будим accept (короткий коннект)
+        try:
+            with socket.create_connection((self.host, self.port), timeout=0.2):
+                pass
+        except Exception:
+            pass
+        if self._thr:
+            self._thr.join(timeout=0.5)
+
+    def trigger_once(self):
+        """Снять флаг готовности после использования."""
+        self.event.clear()
+
+    def _server_loop(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # реюз порта на перезапусках
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((self.host, self.port))
+        s.listen(1)
+        s.settimeout(0.5)
+        while not self._stop.is_set():
+            try:
+                conn, addr = s.accept()
+            except socket.timeout:
+                continue
+            with conn:
+                try:
+                    data = conn.recv(64)
+                    if data and b"START" in data.upper():
+                        self.event.set()
+                        conn.sendall(b"OK\n")
+                    else:
+                        conn.sendall(b"ERR\n")
+                except Exception:
+                    pass
+        s.close()
 
 def feed_until_detect(io: IOController):
     """Подача винта (п.9/16/23) с повтором, пока не придёт импульс IND_SCRW (п.10/17/24)."""
@@ -309,7 +390,8 @@ def torque_fallback(io: IOController):
 # =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
     io = IOController()
-
+    trg = StartTrigger(host="127.0.0.1", port=8765)
+    trg.start()
     # --- Открыть serial и держать открытым до завершения процесса ---
     print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
@@ -362,8 +444,8 @@ def main():
         # ---------- Основной цикл: п.7..29 ----------
         while True:
             # 7. Ждём нажатия педальки
-            print("[cycle] Жду педаль PED_START...")
-            if not wait_new_press(io, "PED_START", None):
+            print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
+            if not wait_pedal_or_command(io, trg):
                 break
 
             # --- Точка 1: X35 Y155 (пп.8–14) ---
@@ -407,6 +489,7 @@ def main():
         pass
     finally:
         # ВАЖНО: по шпаргалке — порт держим открытым, ser.close() не вызываем
+        trg.stop()
         io.cleanup()
         print("=== Остановлено. GPIO освобождены ===")
 

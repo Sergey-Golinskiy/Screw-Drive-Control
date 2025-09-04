@@ -4,7 +4,7 @@ import os
 # если нет переменных DISPLAY/WAYLAND_DISPLAY — поднимем eglfs
 if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
     os.environ.setdefault("QT_QPA_PLATFORM", "eglfs")
-    
+import socket
 import os, sys, socket, re, time
 import requests
 
@@ -35,6 +35,15 @@ API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
 
+def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.sendall(payload)
+            s.settimeout(timeout)
+            resp = s.recv(64)
+            return b"OK" in resp.upper()
+    except Exception:
+        return False
 
 # ================== HTTP ==================
 def get_local_ip() -> str:
@@ -234,26 +243,14 @@ class WorkTab(QWidget):
         self.btnKill.clicked.connect(self.on_kill)
 
     def on_pedal(self):
+        # Больше не жмём GPIO — старт идёт командой START со вкладки "Старт".
+        self.stateLabel.setText("Педаль: теперь запуск выполняется командой START (вкладка 'Старт').")
         try:
-            # гарантируем инициализацию (на случай, если main() не успел)
-            gpio_pedal_init()
-
-            # уровни для "нажатия"/"отпускания"
-            active_level   = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
-            inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
-
-            # нажали
-            GPIO.output(PEDAL_GPIO_PIN, active_level)
-            # отпустим через PEDAL_PULSE_MS миллисекунд — БЕЗ time.sleep, не блокируя UI
-            QTimer.singleShot(PEDAL_PULSE_MS, lambda: GPIO.output(PEDAL_GPIO_PIN, inactive_level))
-
-            # опционально: подсказка в UI
-            self.stateLabel.setText(f"Педаль: импульс {PEDAL_PULSE_MS} мс на GPIO{PEDAL_GPIO_PIN}")
-            # и, если нужно, подтянем статус из контроллера
             st = self.api.status()
             self.render(st)
-        except Exception as e:
-            self.stateLabel.setText(f"Ошибка педали: {e}")
+        except Exception:
+            pass
+
 
 
     def on_kill(self):
@@ -647,13 +644,17 @@ class StartTab(QWidget):
 
     def on_start(self):
         try:
-            data = self.api.ext_start()
-            self.render(data)
-            # мгновенно уходим на Work, если реально запустилось
-            if isinstance(data, dict) and data.get("external_running") and callable(self.on_started):
-                self.on_started()
+            ok = send_start_trigger()
+            if ok:
+                self.stateLabel.setText("Команда START отправлена (локально)")
+                # Можно сразу показать статус "RUNNING" оптимистично — но корректнее дождаться опроса
+                if callable(self.on_started):
+                    self.on_started()  # сразу уходим на Work
+            else:
+                self.stateLabel.setText("Не удалось отправить START (нет связи с циклом)")
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка запуска: {e}")
+            self.stateLabel.setText(f"Ошибка отправки START: {e}")
+
 
     def on_stop(self):
         try:

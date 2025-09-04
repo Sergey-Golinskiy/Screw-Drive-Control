@@ -6,6 +6,7 @@ import subprocess
 import sys
 import os
 import signal
+import socket
 from functools import wraps
 from flask import Flask, request, jsonify, Response
 
@@ -49,6 +50,16 @@ def _pulse(name: str, ms: int):
     if io is None:
         raise RuntimeError("GPIO not available (external script running)")
     io.pulse(name, ms=ms)
+
+def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.sendall(payload)
+            s.settimeout(timeout)
+            resp = s.recv(64)
+            return b"OK" in resp.upper()
+    except Exception:
+        return False
 
 # ---------------------- External script control ----------------------
 def ext_is_running() -> bool:
@@ -177,6 +188,18 @@ def api_ext_stop():
     time.sleep(0.1)
     return jsonify(build_status())
 
+@app.route("/api/trigger/start", methods=["POST"])
+def api_trigger_start():
+    if not ext_is_running():
+        return jsonify({"error":"not_running","message":"Внешний скрипт не запущен"}), 409
+    ok = send_start_trigger()
+    if not ok:
+        return jsonify({"error":"connect","message":"Не удалось отправить команду START в цикл"}), 502
+    # вернём свежий статус
+    time.sleep(0.1)
+    return jsonify(build_status())
+
+
 # ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>
 <html lang="ru">
@@ -218,6 +241,7 @@ INDEX_HTML = """<!doctype html>
       <div class="controls" style="margin-top:8px">
         <button id="btnExtStart" class="btn">Start external</button>
         <button id="btnExtStop"  class="btn">Stop external</button>
+        <button id="btnCmdStart" class="btn">Send START (command)</button>
       </div>
       <div class="muted" style="margin-top:8px">Когда внешний скрипт запущен, веб-панель не трогает GPIO и ручное управление недоступно.</div>
     </div>
@@ -274,6 +298,7 @@ function renderExternal(isRunning){
   state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill blue">EXTERNAL RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
   // блокировать таблицу реле и сенсоров при внешнем процессе
   document.getElementById('relaysTbl').classList.toggle('disabled', isRunning);
+  document.getElementById('btnCmdStart').disabled = !isRunning;
 }
 
 function render(data){
@@ -335,13 +360,29 @@ async function cmd(name, action, ms){
   if(data) render(data);
 }
 
+async function postTriggerStart(){
+  const res = await fetch('/api/trigger/start', {method:'POST'});
+  if(res.status===409){
+    const data = await res.json();
+    alert(data.message || 'Внешний скрипт не запущен');
+    return null;
+  }
+  if(!res.ok){ throw new Error('trigger HTTP '+res.status) }
+  return await res.json();
+}
+
 document.getElementById('btnExtStart').addEventListener('click', async ()=>{
   try{ render(await postExt('start')); }catch(e){ alert('Ошибка запуска: '+e.message); }
 });
 document.getElementById('btnExtStop').addEventListener('click', async ()=>{
   try{ render(await postExt('stop')); }catch(e){ alert('Ошибка остановки: '+e.message); }
 });
-
+document.getElementById('btnCmdStart').addEventListener('click', async ()=>{
+  try{ 
+    const data = await postTriggerStart();
+    if(data) render(data);
+  }catch(e){ alert('Ошибка команды START: '+e.message); }
+});
 refresh();
 setInterval(refresh, 1000);
 </script>

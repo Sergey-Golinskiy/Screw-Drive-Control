@@ -564,12 +564,18 @@ class MainWindow(QMainWindow):
 
         logo = QLabel()
         pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
-        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)  # высота 60px
+        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
         logo.setPixmap(pix)
         logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
 
-        topbar.addStretch(1)
-        topbar.addWidget(logo)
+        # Добавим отступы сверху и справа
+        wrapper = QHBoxLayout()
+        wrapper.setContentsMargins(0, 10, 20, 0)  # top=10px, right=20px
+        wrapper.addStretch(1)
+        wrapper.addWidget(logo)
+
+        root.addLayout(wrapper)
+
 
         root.addLayout(topbar)
 

@@ -201,6 +201,9 @@ class VirtualKeyboard(QFrame):
         self.setWindowFlags(Qt.Tool | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setParent(parent, Qt.Window)  # чтобы всегда быть поверх родительского окна
         self.setFrameShape(QFrame.NoFrame)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.target: QLineEdit | None = None
         lay = QVBoxLayout(self); lay.setContentsMargins(10,10,10,10); lay.setSpacing(8)
@@ -311,12 +314,15 @@ class PasswordDialog(QDialog):
         layout.setSpacing(20)
         layout.addWidget(lbl)
         layout.addWidget(self.edit)
+        layout.addWidget(lbl)
+        layout.addWidget(self.edit)
+        layout.addWidget(self.vkbd)   # клавиатура сразу под полем
         layout.addWidget(buttons)
 
         # применяем стили
         self.setStyleSheet("""
         #pwDialog {
-            background-color: #1a1f29;
+            background-color: rgba(26, 31, 41, 220);  /* тёмный фон с 85% непрозрачности */
             border: 2px solid #2a3140;
             border-radius: 20px;
         }

@@ -19,10 +19,59 @@ from PyQt5.QtWidgets import (
     QTextEdit, QSpinBox, QSizePolicy, QInputDialog
 )
 
+try:
+    import RPi.GPIO as GPIO
+except Exception:
+    GPIO = None
+
+# Параметры «педали»
+PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
+PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
+PEDAL_PULSE_MS = 120       # длительность импульса
+
 # ================== Конфиг ==================
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
+
+_gpio_initialized = False
+
+def gpio_pedal_init():
+    """Инициализация GPIO для педали."""
+    global _gpio_initialized
+    if GPIO is None or _gpio_initialized:
+        return
+    GPIO.setmode(GPIO.BCM)
+    # Педаль как выход. Исходное состояние — «не нажато».
+    inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
+    GPIO.setup(PEDAL_GPIO_PIN, GPIO.OUT, initial=inactive_level)
+    _gpio_initialized = True
+
+def gpio_pedal_pulse(ms: int = PEDAL_PULSE_MS):
+    """Короткий импульс 'нажатия' педали."""
+    if GPIO is None:
+        raise RuntimeError("RPi.GPIO не установлен. Установи: sudo apt install python3-rpi.gpio")
+    if not _gpio_initialized:
+        gpio_pedal_init()
+
+    active_level = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
+    inactive_level = GPIO.HIGH if PEDAL_ACTIVE_LOW else GPIO.LOW
+
+    # Нажать
+    GPIO.output(PEDAL_GPIO_PIN, active_level)
+    time.sleep(ms / 1000.0)
+    # Отпустить
+    GPIO.output(PEDAL_GPIO_PIN, inactive_level)
+
+def gpio_cleanup():
+    """Освобождение GPIO при выходе."""
+    if GPIO is not None:
+        try:
+            GPIO.cleanup()
+        except Exception:
+            pass
+
+
 
 # ================== HTTP ==================
 def get_local_ip() -> str:
@@ -179,8 +228,8 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnPedal = big_button("Эмуляция педали")
-        self.btnKill  = big_button("Остановить скрипт")
+        self.btnPedal = big_button("Закрутить винты")
+        self.btnKill  = big_button("Остановить")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
@@ -190,14 +239,14 @@ class WorkTab(QWidget):
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
 
-    def on_pedal(self):
-        try:
-            st = self.api.pedal()
-            # после педали можно опционально обновить статус:
-            st = self.api.status()
-            self.render(st)
-        except Exception as e:
-            self.stateLabel.setText(f"Ошибка педали: {e}")
+        def on_pedal(self):
+            try:
+                gpio_pedal_pulse()  # локально замкнём пин BCM18
+                # при желании — обновить статус с контроллера
+                st = self.api.status()
+                self.render(st)
+            except Exception as e:
+                self.stateLabel.setText(f"Ошибка запуска: {e}")
 
     def on_kill(self):
         try:
@@ -824,9 +873,17 @@ QTextEdit {{ background: #0f141c; color: #d3ddf0; border: 1px solid #334157; bor
 def main():
     app = QApplication(sys.argv)
     from PyQt5.QtGui import QCursor
+    # Инициализируем GPIO педали (если библиотека доступна) 
+    try:
+        gpio_pedal_init()
+    except Exception as _e:
+    # не падаем, просто сообщим в консоль
+        print(f"[WARN] GPIO init failed: {_e}")
     app.setOverrideCursor(QCursor(Qt.BlankCursor))  # спрятать курсор
     app.setStyleSheet(APP_QSS)
     f = QFont(); f.setPointSize(12); app.setFont(f)
+    # Корректная очистка GPIO при выходе
+    app.aboutToQuit.connect(gpio_cleanup)
     w = MainWindow(); w.show()
     sys.exit(app.exec_())
 

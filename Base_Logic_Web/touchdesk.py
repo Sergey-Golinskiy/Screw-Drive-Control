@@ -282,6 +282,11 @@ class PasswordDialog(QDialog):
         self.setWindowTitle("Доступ по паролю")
         self.setObjectName("pwDialog")
 
+        # чтобы был затемнённый фон
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
         # Заголовок
         lbl = QLabel("Введите пароль для доступа к Service")
         lbl.setObjectName("pwLabel")
@@ -289,12 +294,12 @@ class PasswordDialog(QDialog):
         # Поле ввода
         self.edit = QLineEdit()
         self.edit.setEchoMode(QLineEdit.Password)
-        self.edit.setMinimumHeight(80)    # высота ×4
-        self.edit.setMinimumWidth(400)    # ширина побольше
+        self.edit.setMinimumHeight(80)
+        self.edit.setMinimumWidth(400)
         self.edit.setAlignment(Qt.AlignCenter)
         self.edit.setObjectName("pwEdit")
 
-        # Экранная клавиатура (наша)
+        # Экранная клавиатура
         self.vkbd = VirtualKeyboard(self)
         self.vkbd.on_enter = self.accept
         self.edit.installEventFilter(self)
@@ -302,21 +307,23 @@ class PasswordDialog(QDialog):
         # Кнопки
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         for b in buttons.buttons():
-            b.setMinimumHeight(80)        # кнопки тоже крупные
+            b.setMinimumHeight(80)
             b.setMinimumWidth(200)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        # Разметка
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
         layout.addWidget(lbl)
         layout.addWidget(self.edit)
+        layout.addWidget(self.vkbd)   # клавиатура прямо под полем
         layout.addWidget(buttons)
 
-        # применяем стили
+        # Стили
         self.setStyleSheet("""
         #pwDialog {
-            background-color: #1a1f29;
+            background-color: rgba(26, 31, 41, 220);
             border: 2px solid #2a3140;
             border-radius: 20px;
         }
@@ -351,7 +358,7 @@ class PasswordDialog(QDialog):
     def eventFilter(self, obj, event):
         if obj is self.edit:
             if event.type() == event.FocusIn:
-                self.vkbd.show_for(self.edit, self)
+                self.vkbd.show()
             elif event.type() == event.FocusOut:
                 self.vkbd.hide()
         return super().eventFilter(obj, event)

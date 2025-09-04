@@ -571,6 +571,7 @@ class StartTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api
+        self.on_started = None  # коллбек, который выставит MainWindow в режим work
         root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
 
         row = QHBoxLayout(); row.setSpacing(18)
@@ -588,6 +589,9 @@ class StartTab(QWidget):
     def on_start(self):
         try:    self.render(self.api.ext_start())
         except Exception as e: self.stateLabel.setText(f"Ошибка запуска: {e}")
+        if isinstance(data, dict) and data.get("external_running"):
+            if callable(self.on_started):
+                self.on_started()  # попросить главное окно переключить на Work
 
     def on_stop(self):
         try:    self.render(self.api.ext_stop())
@@ -609,7 +613,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SmartGrow TouchDesk (PyQt5)")
         self.setObjectName("root")
         self.api = ApiClient()
-
+        self._was_running = False  # для отслеживания смены состояния external
         # Центральный контейнер
         self.frame = QFrame(); self.frame.setObjectName("rootFrame")
         self.frame.setProperty("state", "idle")
@@ -649,6 +653,10 @@ class MainWindow(QMainWindow):
         self._logo_margin_right = 30
         self._position_logo()  # первичное позиционирование
 
+        # мгновенное переключение на Work после удачного старта
+        if hasattr(self, "tabStart"):
+            self.tabStart.on_started = lambda: self.tabs.setCurrentIndex(0)
+
         # Таймер опроса API
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
@@ -679,12 +687,30 @@ class MainWindow(QMainWindow):
         sensors = st.get("sensors", {})
         any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
+        # Обновить вкладки
+        self.tabWork.render(st)
+        if hasattr(self, "tabStart"):
+            self.tabStart.render(st)
+        self.tabService.render(st)
+
+        # Логика рамки и блокировок
         if running:
             self.set_border("ok")
+            # Блокируем Старт (idx=1) и Service (idx=2)
             self.tabs.setTabEnabled(1, False)
+            self.tabs.setTabEnabled(2, False)
+
+        # Если только что перешли в RUNNING — перекинуть на Work (idx=0)
+            if not self._was_running and self.tabs.currentIndex() != 0:
+                self.tabs.setCurrentIndex(0)
         else:
+            # Разрешаем Старт и Service
             self.tabs.setTabEnabled(1, True)
+            self.tabs.setTabEnabled(2, True)
             self.set_border("alarm" if any_alarm else "idle")
+
+        # Запомнить текущее состояние для детектора фронта
+        self._was_running = running
 
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):

@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, sys, socket, re, threading, time
+import os, sys, socket, re, time
 import requests
+
 from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QTabWidget, QLabel, QPushButton, QFrame, QScrollArea, QComboBox, QLineEdit,
+    QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
     QTextEdit, QSpinBox, QSizePolicy
 )
 
 # ================== Конфиг ==================
-API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")  # как в web_ui.py
+API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
 
-# ================== Вспомогательное ==================
+# ================== HTTP ==================
 def get_local_ip() -> str:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -30,27 +31,27 @@ def get_local_ip() -> str:
 
 def req_get(path: str):
     url = f"{API_BASE}/{path.lstrip('/')}"
-    return requests.get(url, timeout=3).json()
+    r = requests.get(url, timeout=3)
+    r.raise_for_status()
+    return r.json()
 
 def req_post(path: str, payload=None):
     url = f"{API_BASE}/{path.lstrip('/')}"
-    return requests.post(url, json=payload or {}, timeout=5).json()
+    r = requests.post(url, json=payload or {}, timeout=5)
+    r.raise_for_status()
+    return r.json()
 
-# ================== Клиент API ==================
 class ApiClient:
-    def status(self):
-        return req_get("status")
-    def ext_start(self):
-        return req_post("ext/start")
-    def ext_stop(self):
-        return req_post("ext/stop")
-    def relay(self, name: str, action: str, ms: int | None = None):
+    def status(self):           return req_get("status")
+    def ext_start(self):        return req_post("ext/start")
+    def ext_stop(self):         return req_post("ext/stop")
+    def relay(self, name, action, ms=None):
         data = {"name": name, "action": action}
         if action == "pulse" and ms:
             data["ms"] = int(ms)
         return req_post("relay", data)
 
-# ================== Поток чтения Serial ==================
+# ================== Serial ==================
 try:
     import serial, serial.tools.list_ports as list_ports
 except Exception:
@@ -58,29 +59,28 @@ except Exception:
     list_ports = None
 
 class SerialReader(QThread):
-    line = Signal(str)
+    line   = Signal(str)
     opened = Signal(bool)
 
     def __init__(self):
         super().__init__()
-        self._port = None
+        self._ser  = None
         self._stop = False
-        self._ser = None
 
     def open(self, port: str, baud: int):
         if serial is None:
             self.line.emit("pyserial не установлен")
+            self.opened.emit(False)
             return False
         self.close()
         try:
             self._ser = serial.Serial(port=port, baudrate=baud, timeout=0.1, rtscts=False, dsrdtr=False)
+            # Явно опускаем линии, как ты просил раньше
             try:
-                # как ты просил раньше — явно опустить линии
                 self._ser.dtr = False
                 self._ser.rts = False
             except Exception:
                 pass
-            self._port = port
             self._stop = False
             if not self.isRunning():
                 self.start()
@@ -89,41 +89,33 @@ class SerialReader(QThread):
             return True
         except Exception as e:
             self._ser = None
-            self.line.emit(f"[ERROR] open {port}: {e}")
             self.opened.emit(False)
+            self.line.emit(f"[ERROR] open {port}: {e}")
             return False
 
     def close(self):
         if self._ser:
-            try:
-                self._ser.close()
-            except Exception:
-                pass
+            try: self._ser.close()
+            except Exception: pass
         self._ser = None
-        self._port = None
         self.opened.emit(False)
 
     def write(self, text: str):
         if self._ser:
             try:
-                if not text.endswith("\n"):
-                    text += "\n"
+                if not text.endswith("\n"): text += "\n"
                 self._ser.write(text.encode("utf-8"))
             except Exception as e:
                 self.line.emit(f"[ERROR] write: {e}")
 
     def run(self):
-        while True:
-            if self._stop:
-                break
+        while not self._stop:
             if self._ser:
                 try:
                     data = self._ser.readline()
                     if data:
-                        try:
-                            s = data.decode("utf-8", "ignore").rstrip()
-                        except Exception:
-                            s = repr(data)
+                        try:  s = data.decode("utf-8", "ignore").rstrip()
+                        except Exception: s = repr(data)
                         self.line.emit(s)
                 except Exception as e:
                     self.line.emit(f"[ERROR] read: {e}")
@@ -136,10 +128,9 @@ class SerialReader(QThread):
         self.wait(1000)
         self.close()
 
-# ================== Виджеты ==================
+# ================== UI helpers ==================
 def make_card(title: str) -> QFrame:
-    box = QFrame()
-    box.setObjectName("card")
+    box = QFrame(); box.setObjectName("card")
     lay = QVBoxLayout(box); lay.setContentsMargins(16, 16, 16, 16); lay.setSpacing(10)
     t = QLabel(title); t.setObjectName("cardTitle")
     lay.addWidget(t)
@@ -153,31 +144,26 @@ def big_button(text: str) -> QPushButton:
     b.setCheckable(False)
     return b
 
+# ================== Tabs ==================
 class WorkTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api
 
-        root = QVBoxLayout(self); root.setContentsMargins(24, 24, 24, 24); root.setSpacing(18)
+        root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
 
-        # IP
-        self.ipLabel = QLabel(f"IP: {get_local_ip()}")
-        self.ipLabel.setObjectName("muted")
+        self.ipLabel = QLabel(f"IP: {get_local_ip()}"); self.ipLabel.setObjectName("muted")
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
-        # Две большие кнопки
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnStart = big_button("Start external")
         self.btnStop  = big_button("Stop external")
         row.addWidget(self.btnStart); row.addWidget(self.btnStop)
         root.addLayout(row, 1)
 
-        # Статус
-        self.stateLabel = QLabel("Статус: неизвестно")
-        self.stateLabel.setObjectName("state")
+        self.stateLabel = QLabel("Статус: неизвестно"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
-        # Сигналы
         self.btnStart.clicked.connect(self.on_start)
         self.btnStop.clicked.connect(self.on_stop)
 
@@ -198,44 +184,40 @@ class WorkTab(QWidget):
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
-        # Кнопки/цвет
         self.btnStart.setProperty("ok", running)
         self.btnStop.setProperty("ok", not running)
-        self.btnStart.style().unpolish(self.btnStart); self.btnStart.style().polish(self.btnStart)
-        self.btnStop.style().unpolish(self.btnStop); self.btnStop.style().polish(self.btnStop)
+        for w in (self.btnStart, self.btnStop):
+            w.style().unpolish(w); w.style().polish(w)
 
 class ServiceTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api
-        self._relay_widgets = {}  # name -> (state_lbl, spin_ms)
+        self._relay_widgets = {}  # name -> (lblState, spin, btnOn, btnOff, btnPulse)
 
         root = QHBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
 
-        # Левая колонка: Сенсоры + Реле
+        # Левая колонка
         left = QVBoxLayout(); left.setSpacing(18)
 
-        # Сенсоры
         self.sensorsCard = make_card("Сенсоры / концевики")
         self.sensorsGrid = QGridLayout(); self.sensorsGrid.setHorizontalSpacing(14); self.sensorsGrid.setVerticalSpacing(10)
         self.sensorsCard.layout().addLayout(self.sensorsGrid)
         left.addWidget(self.sensorsCard)
 
-        # Реле
         self.relaysCard = make_card("Реле (ON/OFF/PULSE)")
         self.relaysGrid = QGridLayout(); self.relaysGrid.setHorizontalSpacing(8); self.relaysGrid.setVerticalSpacing(8)
         self.relaysCard.layout().addLayout(self.relaysGrid)
         left.addWidget(self.relaysCard, 1)
 
-        # Правая колонка: Serial
+        # Правая колонка — Serial
         right = QVBoxLayout(); right.setSpacing(18)
         self.serialCard = make_card("Arduino Serial")
         sc = self.serialCard.layout()
 
         top = QHBoxLayout()
         self.cbPort = QComboBox(); self.cbBaud = QComboBox()
-        for b in (9600, 115200, 230400):
-            self.cbBaud.addItem(str(b))
+        for b in (9600, 115200, 230400): self.cbBaud.addItem(str(b))
         self.btnRefresh = QPushButton("Обновить")
         self.btnOpen = QPushButton("Открыть")
         self.btnClose = QPushButton("Закрыть")
@@ -252,6 +234,7 @@ class ServiceTab(QWidget):
         self.btnSend = QPushButton("Отправить")
         send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
         sc.addLayout(send)
+
         right.addWidget(self.serialCard, 1)
 
         root.addLayout(left, 2)
@@ -268,7 +251,7 @@ class ServiceTab(QWidget):
 
         self.fill_ports()
 
-    # ---------- реле ----------
+    # --- реле ---
     def _relay_cell(self, row: int, name: str):
         lblName = QLabel(name); lblName.setObjectName("badge")
         lblState = QLabel("—"); lblState.setObjectName("stateOnOff")
@@ -294,26 +277,23 @@ class ServiceTab(QWidget):
         except Exception as e:
             self.log_line(f"[ERROR] relay: {e}")
 
-    # ---------- сериал ----------
+    # --- serial ---
     def fill_ports(self):
         self.cbPort.clear()
+        ports = []
         if list_ports:
-            ports = [p.device for p in list_ports.comports()]
-        else:
-            ports = []
-        # популярные пути — на всякий случай
-        common = ["/dev/ttyACM0", "/dev/ttyUSB0"]
-        for p in common:
-            if p not in ports:
-                ports.append(p)
-        for p in ports:
-            self.cbPort.addItem(p)
+            try:
+                ports = [p.device for p in list_ports.comports()]
+            except Exception:
+                ports = []
+        for p in ["/dev/ttyACM0", "/dev/ttyUSB0"]:
+            if p not in ports: ports.append(p)
+        for p in ports: self.cbPort.addItem(p)
 
     def open_serial(self):
         port = self.cbPort.currentText().strip()
         baud = int(self.cbBaud.currentText())
-        if port:
-            self.reader.open(port, baud)
+        if port: self.reader.open(port, baud)
 
     def send_serial(self):
         text = self.edSend.text().strip()
@@ -330,39 +310,39 @@ class ServiceTab(QWidget):
     def log_line(self, s: str):
         self.txtLog.append(s)
 
-    # ---------- отрисовка ----------
+    # --- render ---
     def render(self, st: dict):
         # sensors
         names = st.get("sensor_names", [])
         states = st.get("sensors", {})
-        # перестроить сетку сенсоров
-        for i in reversed(range(self.sensorsGrid.count())):
-            item = self.sensorsGrid.itemAt(i)
-            if item: 
-                w = item.widget()
-                if w: w.deleteLater()
+
+        # rebuild sensors grid
+        while self.sensorsGrid.count():
+            item = self.sensorsGrid.takeAt(0)
+            w = item.widget()
+            if w: w.deleteLater()
+
         for i, name in enumerate(names):
             lab = QLabel(name); lab.setObjectName("badge")
-            val = QLabel("CLOSE" if states.get(name) else "OPEN")
-            val.setObjectName("ok" if states.get(name) else "off")
+            v = bool(states.get(name))
+            val = QLabel("CLOSE" if v else "OPEN")
+            val.setObjectName("ok" if v else "off")
             self.sensorsGrid.addWidget(lab, i, 0)
             self.sensorsGrid.addWidget(val, i, 1)
 
         # relays
         relay_names = st.get("relay_names", [])
         relays = st.get("relays", {})
-        # если состав реле изменился — перестроить таблицу
+
         if set(relay_names) != set(self._relay_widgets.keys()):
-            for i in reversed(range(self.relaysGrid.count())):
-                item = self.relaysGrid.itemAt(i)
-                if item:
-                    w = item.widget()
-                    if w: w.deleteLater()
+            while self.relaysGrid.count():
+                item = self.relaysGrid.takeAt(0)
+                w = item.widget()
+                if w: w.deleteLater()
             self._relay_widgets.clear()
             for i, name in enumerate(relay_names):
                 self._relay_cell(i, name)
 
-        # проставить состояния и доступность
         external = bool(st.get("external_running"))
         for name, widgets in self._relay_widgets.items():
             lblState, spin, btnOn, btnOff, btnPulse = widgets
@@ -371,43 +351,38 @@ class ServiceTab(QWidget):
             lblState.setProperty("on", is_on)
             for w in (spin, btnOn, btnOff, btnPulse):
                 w.setEnabled(not external)
-            # обновить стиль
             lblState.style().unpolish(lblState); lblState.style().polish(lblState)
 
-# ================== Главное окно ==================
+# ================== Main Window ==================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartGrow TouchDesk")
+        self.setWindowTitle("SmartGrow TouchDesk (PyQt5)")
         self.setObjectName("root")
         self.api = ApiClient()
 
-        # центральный контейнер с рамкой-индикатором
-        self.frame = QFrame()
-        self.setCentralWidget(self.frame)
-        self.frame.setObjectName("rootFrame")
+        self.frame = QFrame(); self.frame.setObjectName("rootFrame")
         self.frame.setProperty("state", "idle")
+        self.setCentralWidget(self.frame)
 
-        root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W, BORDER_W, BORDER_W, BORDER_W)
+        root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W,BORDER_W,BORDER_W,BORDER_W)
+
         tabs = QTabWidget(); tabs.setObjectName("tabs")
         root.addWidget(tabs)
 
-        self.tabWork = WorkTab(self.api)
+        self.tabWork    = WorkTab(self.api)
         self.tabService = ServiceTab(self.api)
         tabs.addTab(self.tabWork, "Work")
         tabs.addTab(self.tabService, "Service")
         self.tabs = tabs
 
-        # Таймер опроса
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
 
-        # Полноэкранный режим (под сенсор)
-        self.showFullScreen()
+        self.showFullScreen()  # полноэкранный режим под тач
 
     def set_border(self, state: str):
-        """state: 'ok' | 'idle' | 'alarm'"""
         self.frame.setProperty("state", state)
         self.frame.style().unpolish(self.frame); self.frame.style().polish(self.frame)
 
@@ -415,27 +390,19 @@ class MainWindow(QMainWindow):
         try:
             st = self.api.status()
         except Exception:
-            # ошибка связи — красная рамка
-            self.set_border("alarm")
+            self.set_border("alarm")  # нет связи — красная рамка
             return
 
-        # передать во вкладки
         self.tabWork.render(st)
         self.tabService.render(st)
 
         running = bool(st.get("external_running"))
-        # логика цвета рамки: green при external, red при явных "alarm*/emerg*/fault*" сенсорах, иначе yellow
         sensors = st.get("sensors", {})
-        any_alarm = False
-        for k, v in sensors.items():
-            if re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v:
-                any_alarm = True
-                break
+        any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
         if running:
             self.set_border("ok")
-            # блокируем доступ к Service на время работы
-            self.tabs.setTabEnabled(1, False)
+            self.tabs.setTabEnabled(1, False)  # блокируем Service во время работы
         else:
             self.tabs.setTabEnabled(1, True)
             if any_alarm:
@@ -443,11 +410,9 @@ class MainWindow(QMainWindow):
             else:
                 self.set_border("idle")
 
-# ================== Стили ==================
+# ================== QSS ==================
 APP_QSS = f"""
-#root {{
-    background-color: #0f1115;
-}}
+#root {{ background-color: #0f1115; }}
 #rootFrame[state="ok"]    {{ border: {BORDER_W}px solid #1ac06b; }}
 #rootFrame[state="idle"]  {{ border: {BORDER_W}px solid #f0b400; }}
 #rootFrame[state="alarm"] {{ border: {BORDER_W}px solid #e5484d; }}
@@ -455,7 +420,7 @@ APP_QSS = f"""
 #tabs::pane {{ border: none; }}
 QTabBar::tab {{
     color: #cfd5e1; background: #1a1f29; padding: 12px 24px; margin-right: 4px;
-    border-top-left-radius: 10px; border-top-right-radius: 10px; 
+    border-top-left-radius: 10px; border-top-right-radius: 10px;
 }}
 QTabBar::tab:selected {{ background: #242a36; color: white; }}
 
@@ -465,29 +430,22 @@ QTabBar::tab:selected {{ background: #242a36; color: white; }}
     border-radius: 16px;
     color: #d8deea;
 }}
-#cardTitle {{
-    font-size: 18px; font-weight: 600; color: #eef3ff;
-}}
+#cardTitle {{ font-size: 18px; font-weight: 600; color: #eef3ff; }}
 
 #bigButton {{
-    font-size: 32px; font-weight: 700; 
+    font-size: 32px; font-weight: 700;
     background: #2b3342; color: #e8edf8; border: 2px solid #3a4356; border-radius: 18px;
 }}
 #bigButton[ok="true"]  {{ background: #153f2c; border-color: #1ac06b; color: #e9ffee; }}
 #bigButton:pressed     {{ background: #354159; }}
 
 #badge {{
-    background: #2a3140; color: #dbe3f5; padding: 4px 10px; border-radius: 999px; 
+    background: #2a3140; color: #dbe3f5; padding: 4px 10px; border-radius: 999px;
     font-weight: 600;
 }}
 #state {{ color: #cbd5e1; font-size: 16px; }}
-
-[stateOnOff="true"] {{ color: #1ac06b; }}
-[on="true"] {{ color: #1ac06b; font-weight: 700; }}
-
-QLabel#ok {{ color: #1ac06b; font-weight: 700; }}
+QLabel#ok  {{ color: #1ac06b; font-weight: 700; }}
 QLabel#off {{ color: #e5484d; font-weight: 700; }}
-QLabel#muted {{ color: #94a3b8; }}
 
 QPushButton {{
     background: #2b3342; color: #e8edf8;
@@ -500,15 +458,12 @@ QSpinBox, QLineEdit, QComboBox {{
 QTextEdit {{ background: #0f141c; color: #d3ddf0; border: 1px solid #334157; border-radius: 10px; }}
 """
 
-# ================== Запуск ==================
 def main():
     app = QApplication(sys.argv)
-    # приятный дефолтный шрифт
     app.setStyleSheet(APP_QSS)
     f = QFont(); f.setPointSize(12); app.setFont(f)
-    w = MainWindow()
-    w.show()
-    sys.exit(app.exec())
+    w = MainWindow(); w.show()
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()

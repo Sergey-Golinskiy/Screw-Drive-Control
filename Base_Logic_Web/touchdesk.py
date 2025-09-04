@@ -7,7 +7,7 @@ if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
     
 import os, sys, socket, re, time
 import requests
-
+import RPi.GPIO as GPIO
 from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
@@ -18,11 +18,6 @@ from PyQt5.QtWidgets import (
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
     QTextEdit, QSpinBox, QSizePolicy, QInputDialog
 )
-
-try:
-    import RPi.GPIO as GPIO
-except Exception:
-    GPIO = None
 
 # Параметры «педали»
 PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)

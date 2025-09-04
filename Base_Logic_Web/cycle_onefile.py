@@ -73,8 +73,6 @@ def relay_gpio_value(on: bool) -> int:
 
 # =====================[ IO КОНТРОЛЛЕР ]=======================
 class IOController:
-    trg = StartTrigger("127.0.0.1", 8765)
-    trg.start()
     def __init__(self):
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
@@ -386,6 +384,8 @@ def torque_fallback(io: IOController):
 # =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
     io = IOController()
+    trg = StartTrigger("127.0.0.1", 8765)
+    trg.start()
     trg = StartTrigger(host="127.0.0.1", port=8765)
     trg.start()
     # --- Открыть serial и держать открытым до завершения процесса ---

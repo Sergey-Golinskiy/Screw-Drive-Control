@@ -57,6 +57,23 @@ class ApiClient:
             data["ms"] = int(ms)
         return req_post("relay", data)
 
+    # --- NEW: pedal emulation (safe fallbacks) ---
+    def pedal(self, relay_name="PEDAL", pulse_ms=120):
+        try:
+            # если сервер поддерживает прямой эндпоинт
+            return req_post("pedal", {"ms": pulse_ms})
+        except Exception:
+            # Fallback: реле PEDAL импульсом
+            return self.relay(relay_name, "pulse", pulse_ms)
+
+    # --- NEW: stop script (optional endpoint; fallback to ext_stop) ---
+    def script_stop(self):
+        try:
+            return req_post("script/stop", {})
+        except Exception:
+            return self.ext_stop()
+
+
 # ================== Serial ==================
 try:
     import serial, serial.tools.list_ports as list_ports
@@ -162,38 +179,42 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnStart = big_button("Start external")
-        self.btnStop  = big_button("Stop external")
-        row.addWidget(self.btnStart); row.addWidget(self.btnStop)
+        self.btnPedal = big_button("Эмуляция педали")
+        self.btnKill  = big_button("Остановить скрипт")
+        row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
         self.stateLabel = QLabel("Статус: неизвестно"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
-        self.btnStart.clicked.connect(self.on_start)
-        self.btnStop.clicked.connect(self.on_stop)
+        self.btnPedal.clicked.connect(self.on_pedal)
+        self.btnKill.clicked.connect(self.on_kill)
 
-    def on_start(self):
+    def on_pedal(self):
         try:
-            data = self.api.ext_start()
-            self.render(data)
+            st = self.api.pedal()
+            # после педали можно опционально обновить статус:
+            st = self.api.status()
+            self.render(st)
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка запуска: {e}")
+            self.stateLabel.setText(f"Ошибка педали: {e}")
 
-    def on_stop(self):
+    def on_kill(self):
         try:
-            data = self.api.ext_stop()
-            self.render(data)
+            st = self.api.script_stop()
+            self.render(st)
         except Exception as e:
             self.stateLabel.setText(f"Ошибка остановки: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
-        self.btnStart.setProperty("ok", running)
-        self.btnStop.setProperty("ok", not running)
-        for w in (self.btnStart, self.btnStop):
+        # визуально подсветим, какая «логическая» кнопка актуальна
+        self.btnPedal.setProperty("ok", False)
+        self.btnKill.setProperty("ok", running)   # когда что-то бежит — «остановка» актуальна
+        for w in (self.btnPedal, self.btnKill):
             w.style().unpolish(w); w.style().polish(w)
+
 
 class VirtualKeyboard(QFrame):
     def __init__(self, parent=None):
@@ -544,6 +565,43 @@ class ServiceTab(QWidget):
                 self.vkeyboard.hide()
         return super().eventFilter(obj, event)
 
+
+class StartTab(QWidget):
+    """Третья вкладка: только большие кнопки Start/Stop external."""
+    def __init__(self, api: ApiClient, parent=None):
+        super().__init__(parent)
+        self.api = api
+        root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
+
+        row = QHBoxLayout(); row.setSpacing(18)
+        self.btnStart = big_button("Start external")
+        self.btnStop  = big_button("Stop external")
+        row.addWidget(self.btnStart); row.addWidget(self.btnStop)
+        root.addLayout(row, 1)
+
+        self.stateLabel = QLabel("Статус: неизвестно"); self.stateLabel.setObjectName("state")
+        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+
+        self.btnStart.clicked.connect(self.on_start)
+        self.btnStop.clicked.connect(self.on_stop)
+
+    def on_start(self):
+        try:    self.render(self.api.ext_start())
+        except Exception as e: self.stateLabel.setText(f"Ошибка запуска: {e}")
+
+    def on_stop(self):
+        try:    self.render(self.api.ext_stop())
+        except Exception as e: self.stateLabel.setText(f"Ошибка остановки: {e}")
+
+    def render(self, st: dict):
+        running = bool(st.get("external_running"))
+        self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
+        self.btnStart.setProperty("ok", running)
+        self.btnStop.setProperty("ok", not running)
+        for w in (self.btnStart, self.btnStop):
+            w.style().unpolish(w); w.style().polish(w)
+
+
 # ================== Main Window ==================
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -566,11 +624,15 @@ class MainWindow(QMainWindow):
         root.addWidget(tabs)
 
         self.tabWork    = WorkTab(self.api)
+        self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
+
         tabs.addTab(self.tabWork, "Work")
+        tabs.addTab(self.tabStart, "Start/Stop")
         tabs.addTab(self.tabService, "Service")
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.check_service_tab)
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
 
         # ---------- ЛОГОТИП-ОВЕРЛЕЙ (абсолютно, не в layout) ----------
@@ -624,11 +686,12 @@ class MainWindow(QMainWindow):
 
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):
-        if idx == 1:
+        if idx == 2:  # теперь Service = 2
             dlg = PasswordDialog(self)
             pw = dlg.get_password()
-            if pw != "1234":   # ← твой пароль
+            if pw != "1234":
                 self.tabs.setCurrentIndex(0)
+
 
     # Абсолютное позиционирование логотипа
     def _position_logo(self):
@@ -645,11 +708,12 @@ class MainWindow(QMainWindow):
         return super().resizeEvent(event)
 
     def on_tab_changed(self, idx: int):
-        # проставляем property на виджет вкладок — для QSS
-        self.tabs.setProperty("active", "work" if idx == 0 else "service")
-        # нужно дернуть перекраску, чтобы QSS применился
+        # work / start / service
+        active = "work" if idx == 0 else ("start" if idx == 1 else "service")
+        self.tabs.setProperty("active", active)
         self.tabs.style().unpolish(self.tabs)
-        self.tabs.style().polish(self.tabs)
+        elf.tabs.style().polish(self.tabs)
+
 
 
 # ================== QSS ==================

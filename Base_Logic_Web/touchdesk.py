@@ -570,7 +570,8 @@ class MainWindow(QMainWindow):
 
         # Добавим отступы сверху и справа
         wrapper = QHBoxLayout()
-        wrapper.setContentsMargins(0, 5, 5, 0)  # top=10px, right=20px
+        wrapper.setContentsMargins(0, 0, 0, 0)  # layout без внешних отступов
+        logo.setStyleSheet("background: transparent; padding-top: 10px; padding-right: 20px;")
         wrapper.addStretch(1)
         wrapper.addWidget(logo)
 

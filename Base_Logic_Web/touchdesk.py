@@ -696,16 +696,17 @@ class StartTab(QWidget):
 
     def on_start(self):
         try:
-            ok = send_start_trigger()
-            if ok:
-                self.stateLabel.setText("Команда START отправлена (локально)")
-                # Можно сразу показать статус "RUNNING" оптимистично — но корректнее дождаться опроса
-                if callable(self.on_started):
-                    self.on_started()  # сразу уходим на Work
-            else:
-                self.stateLabel.setText("Не удалось отправить START (нет связи с циклом)")
+            self.stateLabel.setText("Запускаю внешний скрипт…")
+            self.api.ext_start()  # только стартуем процесс (как в веб UI /api/ext/start)
+            # покажем подсказку оператору
+            self.stateLabel.setText(
+                "Внешний скрипт запущен. Для старта цикла нажмите «Эмуляция педали» на вкладке Work."
+            )
+            # дальше переключать вкладку НЕ будем — авто-переброс на Work произойдёт,
+            # когда external_running станет True (логика уже есть в refresh()).
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка отправки START: {e}")
+            self.stateLabel.setText(f"Не удалось запустить внешний скрипт: {e}")
+
 
 
     def on_stop(self):

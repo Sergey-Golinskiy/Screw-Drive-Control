@@ -582,8 +582,8 @@ class MainWindow(QMainWindow):
         self.logo.raise_()  # поверх всего
 
         # Отступы логотипа
-        self._logo_margin_top = 10
-        self._logo_margin_right = 20
+        self._logo_margin_top = 30
+        self._logo_margin_right = 30
         self._position_logo()  # первичное позиционирование
 
         # Таймер опроса API

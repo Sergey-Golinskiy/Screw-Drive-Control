@@ -7,6 +7,10 @@ import sys
 import os
 import signal
 import socket
+try:
+    import socket
+except Exception:
+    socket = None
 from functools import wraps
 from flask import Flask, request, jsonify, Response
 

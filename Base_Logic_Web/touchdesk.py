@@ -671,6 +671,8 @@ class MainWindow(QMainWindow):
             return
 
         self.tabWork.render(st)
+        if hasattr(self, "tabStart"):
+            self.tabStart.render(st)
         self.tabService.render(st)
 
         running = bool(st.get("external_running"))

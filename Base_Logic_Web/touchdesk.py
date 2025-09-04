@@ -4,9 +4,9 @@ import os, sys, socket, re, threading, time
 import requests
 from functools import partial
 
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QScrollArea, QComboBox, QLineEdit,
     QTextEdit, QSpinBox, QSizePolicy

@@ -274,6 +274,94 @@ class VirtualKeyboard(QFrame):
         self.raise_()                  # на самый верх
 
 
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel
+
+class PasswordDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Доступ по паролю")
+        self.setObjectName("pwDialog")
+
+        # Заголовок
+        lbl = QLabel("Введите пароль для доступа к Service")
+        lbl.setObjectName("pwLabel")
+
+        # Поле ввода
+        self.edit = QLineEdit()
+        self.edit.setEchoMode(QLineEdit.Password)
+        self.edit.setMinimumHeight(80)    # высота ×4
+        self.edit.setMinimumWidth(400)    # ширина побольше
+        self.edit.setAlignment(Qt.AlignCenter)
+        self.edit.setObjectName("pwEdit")
+
+        # Экранная клавиатура (наша)
+        self.vkbd = VirtualKeyboard(self)
+        self.vkbd.on_enter = self.accept
+        self.edit.installEventFilter(self)
+
+        # Кнопки
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        for b in buttons.buttons():
+            b.setMinimumHeight(80)        # кнопки тоже крупные
+            b.setMinimumWidth(200)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.addWidget(lbl)
+        layout.addWidget(self.edit)
+        layout.addWidget(buttons)
+
+        # применяем стили
+        self.setStyleSheet("""
+        #pwDialog {
+            background-color: #1a1f29;
+            border: 2px solid #2a3140;
+            border-radius: 20px;
+        }
+        #pwLabel {
+            font-size: 28px;
+            font-weight: bold;
+            color: #eef3ff;
+        }
+        #pwEdit {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ffffff;
+            background: #0f141c;
+            border: 2px solid #3a4356;
+            border-radius: 12px;
+            padding: 10px;
+        }
+        QPushButton {
+            font-size: 24px;
+            font-weight: bold;
+            background: #2b3342;
+            color: #e8edf8;
+            border: 2px solid #3a4356;
+            border-radius: 12px;
+            padding: 12px 20px;
+        }
+        QPushButton:pressed {
+            background: #354159;
+        }
+        """)
+
+    def eventFilter(self, obj, event):
+        if obj is self.edit:
+            if event.type() == event.FocusIn:
+                self.vkbd.show_for(self.edit, self)
+            elif event.type() == event.FocusOut:
+                self.vkbd.hide()
+        return super().eventFilter(obj, event)
+
+    def get_password(self):
+        if self.exec_() == QDialog.Accepted:
+            return self.edit.text()
+        return None
+
+
 class ServiceTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
@@ -510,14 +598,12 @@ class MainWindow(QMainWindow):
                 self.set_border("idle")
     
     def check_service_tab(self, idx: int):
-    # Если пользователь выбирает вкладку Service (она вторая, индекс 1)
         if idx == 1:
-            pw, accepted = QInputDialog.getText(
-                self, "Доступ по паролю", "Введите пароль:", QLineEdit.Password
-            )
-            if not (accepted and pw == "1234"):  # ← задай свой пароль
-                # если пароль не введён или неверный — вернём обратно на Work
+            dlg = PasswordDialog(self)
+            pw = dlg.get_password()
+            if pw != "1234":   # ← сюда подставь свой пароль
                 self.tabs.setCurrentIndex(0)
+
 
 
 # ================== QSS ==================
@@ -531,7 +617,7 @@ APP_QSS = f"""
 QTabBar::tab {{
     color: #cfd5e1; background: #1a1f29; padding: 12px 24px; margin-right: 4px;
     border-top-left-radius: 10px; border-top-right-radius: 10px;
-    font-size: 28px; font-weight: 700;
+    font-size: 28px; font-weight: 700; min-height: 80px; min-width: 200px;
 }}
 QTabBar::tab:selected {{ background: #242a36; color: white; }}
 

@@ -562,7 +562,23 @@ class MainWindow(QMainWindow):
         topbar.setContentsMargins(0,0,0,0)
         topbar.setSpacing(0)
 
+        logo = QLabel()
+        pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
+        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
+        logo.setPixmap(pix)
+        logo.setStyleSheet("background: transparent; padding-top: 5px; padding-right: 5px;")
+        logo.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # чтоб клики по вкладкам проходили
+        tabs.setCornerWidget(logo, Qt.TopRightCorner)
 
+        root.addLayout(wrapper)
+
+
+        root.addLayout(topbar)
+
+        tabs = QTabWidget(); tabs.setObjectName("tabs")
+        root.addWidget(tabs)
+        root.addLayout(topbar)
+        root.addWidget(tabs)
 
         self.tabWork    = WorkTab(self.api)
         self.tabService = ServiceTab(self.api)

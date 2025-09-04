@@ -557,32 +557,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.frame)
 
         root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W,BORDER_W,BORDER_W,BORDER_W)
-        # Верхняя панель с логотипом
-        topbar = QHBoxLayout()
-        topbar.setContentsMargins(0,0,0,0)
-        topbar.setSpacing(0)
 
-        logo = QLabel()
-        pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
-        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
-        logo.setPixmap(pix)
-        logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        # === ЛОГОТИП-ОВЕРЛЕЙ (не влияет на layout) ===
+        self.logo = QLabel(self.frame)
+        logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        pix = QPixmap(logo_path).scaledToHeight(60, Qt.SmoothTransformation)
+        self.logo.setPixmap(pix)
+        self.logo.setStyleSheet("background: transparent;")
+        self.logo.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.logo.adjustSize()
 
-        # Добавим отступы сверху и справа
-        wrapper = QHBoxLayout()
-        wrapper.setContentsMargins(0, 50, 50, 0)  # top=10px, right=20px
-        wrapper.addStretch(1)
-        wrapper.addWidget(logo)
+        self._logo_margin_top = 10
+        self._logo_margin_right = 20
+        self._position_logo()
 
-        root.addLayout(wrapper)
-
-
-        root.addLayout(topbar)
-
-        tabs = QTabWidget(); tabs.setObjectName("tabs")
         root.addWidget(tabs)
-        root.addLayout(topbar)
-        root.addWidget(tabs)
+
+
 
         self.tabWork    = WorkTab(self.api)
         self.tabService = ServiceTab(self.api)
@@ -632,6 +623,19 @@ class MainWindow(QMainWindow):
             if pw != "1234":   # ← сюда подставь свой пароль
                 self.tabs.setCurrentIndex(0)
 
+
+    def _position_logo(self):
+        if not hasattr(self, "logo") or self.logo.pixmap() is None:
+            return
+        # координаты внутри centralWidget (self.frame)
+        r = self.frame.rect()
+        x = r.right() - self.logo.width() - self._logo_margin_right
+        y = r.top() + self._logo_margin_top
+        self.logo.move(x, y)
+
+    def resizeEvent(self, event):
+        self._position_logo()
+        return super().resizeEvent(event)
 
 
 # ================== QSS ==================

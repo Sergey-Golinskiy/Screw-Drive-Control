@@ -45,7 +45,7 @@ def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=
     except Exception:
         return False
 
-def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
+def is_port_open(host="127.0.0.1", port=8765, timeout=0.3) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -265,13 +265,43 @@ class WorkTab(QWidget):
         self.btnKill.clicked.connect(self.on_kill)
 
     def on_pedal(self):
-        # Больше не жмём GPIO — старт идёт командой START со вкладки "Старт".
-        self.stateLabel.setText("Педаль: теперь запуск выполняется командой START (вкладка 'Старт').")
         try:
-            st = self.api.status()
-            self.render(st)
-        except Exception:
-            pass
+            # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
+            running = False
+            try:
+                st0 = self.api.status()
+                running = bool(st0.get("external_running"))
+            except Exception:
+                pass
+
+            if not running:
+                self.stateLabel.setText(
+                "Внешний скрипт не запущен. Сначала нажмите «Start external» на вкладке «Старт»."
+                )
+                return
+
+            # Убедимся, что listener поднят (порт 8765). Если нет — пару секунд подождём.
+            t0 = time.time()
+            while not is_port_open() and time.time() - t0 < 3.0:
+                QApplication.processEvents()
+                time.sleep(0.1)
+
+            ok = send_start_trigger_with_retry()
+            if ok:
+                self.stateLabel.setText("Команда START отправлена (эмуляция педали).")
+            else:
+                self.stateLabel.setText("Не удалось отправить START (нет ответа от цикла).")
+
+            # Обновим статус для подсветки кнопок
+            try:
+                st = self.api.status()
+                self.render(st)
+            except Exception:
+                pass
+
+        except Exception as e:
+            self.stateLabel.setText(f"Ошибка отправки START: {e}")
+
 
 
 
@@ -666,47 +696,16 @@ class StartTab(QWidget):
 
     def on_start(self):
         try:
-            # 1) Получим текущий статус
-            st0 = {}
-            try:
-                st0 = self.api.status()
-            except Exception:
-                pass
-            running = bool(st0.get("external_running"))
-
-            # 2) Если внешний процесс ещё не запущен — запустим его
-            if not running:
-                self.stateLabel.setText("Запускаю внешний скрипт…")
-                try:
-                    self.api.ext_start()   # /api/ext/start из web_ui.py
-                except Exception as e:
-                    self.stateLabel.setText(f"Не удалось запустить внешний скрипт: {e}")
-                    return
-
-            # 3) Ждём, пока поднимется listener 127.0.0.1:8765 (до ~3 сек)
-            self.stateLabel.setText("Ожидаю готовность цикла…")
-            t0 = time.time()
-            while not is_port_open() and time.time() - t0 < 3.0:
-                QApplication.processEvents()
-                time.sleep(0.1)
-            if not is_port_open():
-                self.stateLabel.setText("Цикл не открыл порт (8765). Попробуйте ещё раз.")
-                return
-
-            # 4) Шлём START с ретраями (как в веб-UI)
-            ok = send_start_trigger_with_retry()
-            if not ok:
-                self.stateLabel.setText("Не удалось отправить START (нет ответа)")
-                return
-
-            self.stateLabel.setText("Команда START отправлена")
-            # 5) Мгновенно перейти на Work (ваш ранее заданный UX)
-            if callable(self.on_started):
-                self.on_started()
-
+            ok = send_start_trigger()
+            if ok:
+                self.stateLabel.setText("Команда START отправлена (локально)")
+                # Можно сразу показать статус "RUNNING" оптимистично — но корректнее дождаться опроса
+                if callable(self.on_started):
+                    self.on_started()  # сразу уходим на Work
+            else:
+                self.stateLabel.setText("Не удалось отправить START (нет связи с циклом)")
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка: {e}")
-
+            self.stateLabel.setText(f"Ошибка отправки START: {e}")
 
 
     def on_stop(self):

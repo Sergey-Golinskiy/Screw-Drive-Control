@@ -566,9 +566,13 @@ class MainWindow(QMainWindow):
         pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
         pix = pix.scaledToHeight(60, Qt.SmoothTransformation)
         logo.setPixmap(pix)
-        logo.setStyleSheet("background: transparent; padding-top: 5px; padding-right: 5px;")
-        logo.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # чтоб клики по вкладкам проходили
-        tabs.setCornerWidget(logo, Qt.TopRightCorner)
+        logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
+
+        # Добавим отступы сверху и справа
+        wrapper = QHBoxLayout()
+        wrapper.setContentsMargins(0, 5, 5, 0)  # top=10px, right=20px
+        wrapper.addStretch(1)
+        wrapper.addWidget(logo)
 
         root.addLayout(wrapper)
 

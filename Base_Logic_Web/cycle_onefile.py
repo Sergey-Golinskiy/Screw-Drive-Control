@@ -3,16 +3,16 @@
 import time
 import threading
 from datetime import datetime
-try:
-    import serial
-except Exception:
-    serial = None
+
 from typing import Optional
 import RPi.GPIO as GPIO
 
 # ===[ ДОБАВЛЕНО: serial ]===
 import serial
-
+try:
+    import serial
+except Exception:
+    serial = None
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 

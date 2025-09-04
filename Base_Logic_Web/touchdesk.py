@@ -12,6 +12,7 @@ from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
 from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
@@ -556,8 +557,25 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.frame)
 
         root = QVBoxLayout(self.frame); root.setContentsMargins(BORDER_W,BORDER_W,BORDER_W,BORDER_W)
+        # Верхняя панель с логотипом
+        topbar = QHBoxLayout()
+        topbar.setContentsMargins(0,0,0,0)
+        topbar.setSpacing(0)
+
+        logo = QLabel()
+        pix = QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
+        pix = pix.scaledToHeight(60, Qt.SmoothTransformation)  # высота 60px
+        logo.setPixmap(pix)
+        logo.setAlignment(Qt.AlignRight | Qt.AlignTop)
+
+        topbar.addStretch(1)
+        topbar.addWidget(logo)
+
+        root.addLayout(topbar)
 
         tabs = QTabWidget(); tabs.setObjectName("tabs")
+        root.addWidget(tabs)
+        root.addLayout(topbar)
         root.addWidget(tabs)
 
         self.tabWork    = WorkTab(self.api)

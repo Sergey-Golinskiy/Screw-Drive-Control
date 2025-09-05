@@ -104,9 +104,8 @@ def gpio_pedal_init():
     _gpio_initialized = True
 
 def gpio_pedal_pulse(ms: int = PEDAL_PULSE_MS):
-    """Короткий импульс 'нажатия' педали на BCM18."""
     if GPIO is None:
-        raise RuntimeError("RPi.GPIO не установлен. Установи: sudo apt install -y python3-rpi.gpio")
+        raise RuntimeError("RPi.GPIO is not installed. Install: sudo apt install -y python3-rpi.gpio")
     if not _gpio_initialized:
         gpio_pedal_init()
     active = GPIO.LOW if PEDAL_ACTIVE_LOW else GPIO.HIGH
@@ -166,7 +165,7 @@ class SerialReader(QThread):
 
     def open(self, port: str, baud: int):
         if serial is None:
-            self.line.emit("pyserial не установлен")
+            self.line.emit("pyserial is not installed")
             self.opened.emit(False)
             return False
         self.close()
@@ -253,12 +252,12 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnPedal = big_button("Эмуляция педали")
-        self.btnKill  = big_button("Остановить скрипт")
+        self.btnPedal = big_button("Tighten the screws (pedal emulation)")
+        self.btnKill  = big_button("STOP script")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
-        self.stateLabel = QLabel("Статус: неизвестно"); self.stateLabel.setObjectName("state")
+        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         self.btnPedal.clicked.connect(self.on_pedal)
@@ -276,7 +275,7 @@ class WorkTab(QWidget):
 
             if not running:
                 self.stateLabel.setText(
-                "Внешний скрипт не запущен. Сначала нажмите «Start external» на вкладке «Старт»."
+                "The script is not running. First, click "Start program" on the "Start" tab."
                 )
                 return
 
@@ -288,9 +287,9 @@ class WorkTab(QWidget):
 
             ok = send_start_trigger_with_retry()
             if ok:
-                self.stateLabel.setText("Команда START отправлена (эмуляция педали).")
+                self.stateLabel.setText("START command sent (pedal emulation).")
             else:
-                self.stateLabel.setText("Не удалось отправить START (нет ответа от цикла).")
+                self.stateLabel.setText("Failed to send START (no response from loop).")
 
             # Обновим статус для подсветки кнопок
             try:
@@ -300,7 +299,7 @@ class WorkTab(QWidget):
                 pass
 
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка отправки START: {e}")
+            self.stateLabel.setText(f"Error sending START: {e}")
 
 
 
@@ -311,11 +310,11 @@ class WorkTab(QWidget):
             st = self.api.ext_stop()
             self.render(st)
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка остановки: {e}")
+            self.stateLabel.setText(f"Stop error: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
-        self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
+        self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
 
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
@@ -415,11 +414,11 @@ from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel
 class PasswordDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Доступ по паролю")
+        self.setWindowTitle("Password access")
         self.setObjectName("pwDialog")
 
         # Заголовок
-        lbl = QLabel("Введите пароль для доступа к Service")
+        lbl = QLabel("Enter the password to access the Service")
         lbl.setObjectName("pwLabel")
 
         # Поле ввода
@@ -456,7 +455,7 @@ class PasswordDialog(QDialog):
         # применяем стили
         self.setStyleSheet("""
         #pwDialog {
-            background-color: rgba(26, 31, 41, 220);  /* тёмный фон с 85% непрозрачности */
+            background-color: rgba(26, 31, 41, 220);
             border: 2px solid #2a3140;
                 border-radius: 20px;
         }   
@@ -531,11 +530,11 @@ class ServiceTab(QWidget):
         top = QHBoxLayout()
         self.cbPort = QComboBox(); self.cbBaud = QComboBox()
         for b in (9600, 115200, 230400): self.cbBaud.addItem(str(b))
-        self.btnRefresh = QPushButton("Обновить")
-        self.btnOpen = QPushButton("Открыть")
-        self.btnClose = QPushButton("Закрыть")
-        top.addWidget(QLabel("Порт:")); top.addWidget(self.cbPort, 1)
-        top.addWidget(QLabel("Скорость:")); top.addWidget(self.cbBaud)
+        self.btnRefresh = QPushButton("Refresh")
+        self.btnOpen = QPushButton("Open")
+        self.btnClose = QPushButton("Close")
+        top.addWidget(QLabel("Port:")); top.addWidget(self.cbPort, 1)
+        top.addWidget(QLabel("Speed:")); top.addWidget(self.cbBaud)
         top.addWidget(self.btnRefresh); top.addWidget(self.btnOpen); top.addWidget(self.btnClose)
         sc.addLayout(top)
 
@@ -543,8 +542,8 @@ class ServiceTab(QWidget):
         sc.addWidget(self.txtLog, 1)
 
         send = QHBoxLayout()
-        self.edSend = QLineEdit(); self.edSend.setPlaceholderText("Введите команду и нажмите Отправить (добавится \\n)")
-        self.btnSend = QPushButton("Отправить")
+        self.edSend = QLineEdit(); self.edSend.setPlaceholderText("Enter the command and press Send (\\n will be added)")
+        self.btnSend = QPushButton("Send")
         send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
         sc.addLayout(send)
 # экранная клавиатура
@@ -589,7 +588,7 @@ class ServiceTab(QWidget):
             data = self.api.relay(name, action, ms)
             self.render(data)
         except requests.HTTPError as e:
-            self.log_line(f"[HTTP {e.response.status_code}] ручное управление недоступно при external")
+            self.log_line(f"[HTTP {e.response.status_code}] manual control is not available WHEN THE PROGRAM IS RUNNING")
         except Exception as e:
             self.log_line(f"[ERROR] relay: {e}")
 
@@ -689,12 +688,12 @@ class StartTab(QWidget):
 
         root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnStart = big_button("Start external")
-        self.btnStop  = big_button("Stop external")
+        self.btnStart = big_button("START program")
+        self.btnStop  = big_button("STOP program")
         row.addWidget(self.btnStart); row.addWidget(self.btnStop)
         root.addLayout(row, 1)
 
-        self.stateLabel = QLabel("Статус: неизвестно"); self.stateLabel.setObjectName("state")
+        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         self.btnStart.clicked.connect(self.on_start)
@@ -702,16 +701,16 @@ class StartTab(QWidget):
 
     def on_start(self):
         try:
-            self.stateLabel.setText("Запускаю внешний скрипт…")
+            self.stateLabel.setText("Launching the program…")
             self.api.ext_start()  # только стартуем процесс (как в веб UI /api/ext/start)
             # покажем подсказку оператору
             self.stateLabel.setText(
-                "Внешний скрипт запущен. Для старта цикла нажмите «Эмуляция педали» на вкладке Work."
+                "The program is running. To begin working, click "START" on the Work tab."
             )
             # дальше переключать вкладку НЕ будем — авто-переброс на Work произойдёт,
             # когда external_running станет True (логика уже есть в refresh()).
         except Exception as e:
-            self.stateLabel.setText(f"Не удалось запустить внешний скрипт: {e}")
+            self.stateLabel.setText(f"Failed to start the program: {e}")
 
 
 
@@ -720,11 +719,11 @@ class StartTab(QWidget):
             data = self.api.ext_stop()
             self.render(data)
         except Exception as e:
-            self.stateLabel.setText(f"Ошибка остановки: {e}")
+            self.stateLabel.setText(f"Stop error: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
-        self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
+        self.stateLabel.setText("Статус: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
         self.btnStart.setProperty("ok", running)
         self.btnStop.setProperty("ok", not running)
         for w in (self.btnStart, self.btnStop):
@@ -736,7 +735,7 @@ class StartTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartGrow TouchDesk (PyQt5)")
+        self.setWindowTitle("AJAX TouchDesk (PyQt5)")
         self.setObjectName("root")
         self.api = ApiClient()
         self._was_running = False  # для отслеживания смены состояния external
@@ -757,9 +756,9 @@ class MainWindow(QMainWindow):
         self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
 
-        tabs.addTab(self.tabWork,   "Work")     # idx 0
-        tabs.addTab(self.tabStart,  "Старт")    # idx 1
-        tabs.addTab(self.tabService,"Service")  # idx 2
+        tabs.addTab(self.tabWork,   "WORK")     # idx 0
+        tabs.addTab(self.tabStart,  "START")    # idx 1
+        tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.check_service_tab)

@@ -690,6 +690,7 @@ class StartTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnStart = big_button("START program")
         self.btnStop  = big_button("STOP program")
+        self.btnStop.setObjectName("stopButton")
         row.addWidget(self.btnStart); row.addWidget(self.btnStop)
         root.addLayout(row, 1)
 
@@ -911,7 +912,8 @@ QTabBar::tab:selected {{ background: #242a36; color: white; }}
     font-size: 32px; font-weight: 700;
     background: #2b3342; color: #e8edf8; border: 2px solid #3a4356; border-radius: 18px;
 }}
-#bigButton[ok="true"]  {{ background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
+#bigButton[ok="true"]  {{ background: #153f2c; border-color: #1ac06b; color: #e9ffee; }}
+#stopButton[ok="true"] {{ background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
 #bigButton:pressed     {{ background: #354159; }}
 
 #badge {{

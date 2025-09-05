@@ -95,15 +95,18 @@ void movePlan(float x_mm, float y_mm, float f_mm_min){
   stepX.moveTo((long)(x_mm * STEPS_PER_MM_X));
   stepY.moveTo((long)(y_mm * STEPS_PER_MM_Y));
 }
-bool runStep(bool checkEndstops=true){
-  if(checkEndstops){
-    if(stepX.speed()<0 && endActive(X_MIN_PIN, X_ENDSTOP_ACTIVE_LOW)) stepX.stop();
-    if(stepY.speed()<0 && endActive(Y_MIN_PIN, Y_ENDSTOP_ACTIVE_LOW)) stepY.stop();
+
+inline bool runStep(bool checkEndstops = true) {
+  if (checkEndstops) {
+    if (stepX.speed() < 0 && endActive(X_MIN_PIN, X_ENDSTOP_ACTIVE_LOW)) stepX.stop();
+    if (stepY.speed() < 0 && endActive(Y_MIN_PIN, Y_ENDSTOP_ACTIVE_LOW)) stepY.stop();
   }
-  bool rx = (stepX.distanceToGo()!=0);
-  bool ry = (stepY.distanceToGo()!=0);
-  stepX.run(); stepY.run();
-  return rx || ry;
+
+  bool stepped = false;
+  stepped |= stepX.run();
+  stepped |= stepY.run();
+
+  return (stepX.distanceToGo() != 0) || (stepY.distanceToGo() != 0);
 }
 
 /* ===== homing to MIN (пер-ось) ===== */

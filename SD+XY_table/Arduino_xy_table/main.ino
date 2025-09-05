@@ -18,8 +18,8 @@ float STEPS_PER_MM_X = 50.0f;
 float STEPS_PER_MM_Y = 50.0f;
 
 // мягкие стартовые параметры
-float MAX_FEED_MM_S  = 80.0f;   // мм/с
-float MAX_ACC_MM_S2  = 6000.0f;  // мм/с^2
+float MAX_FEED_MM_S  = 600.0f;   // мм/с
+float MAX_ACC_MM_S2  = 60000.0f;  // мм/с^2
 
 // Рабочие лимиты (мм): 0…MAX (ноль на MIN)
 float X_MIN_MM = 0.0f, X_MAX_MM = 60.0f;
@@ -67,8 +67,8 @@ void setupPins(){
 void setKinematicsMax(){
   stepX.setPinsInverted(INVERT_X_DIR, false, true); // dir, step, enable
   stepY.setPinsInverted(INVERT_Y_DIR, false, true);
-  stepX.setMinPulseWidth(5);  // μs
-  stepY.setMinPulseWidth(5);
+  stepX.setMinPulseWidth(2);  // μs
+  stepY.setMinPulseWidth(2);
   stepX.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_X);
   stepX.setAcceleration(MAX_ACC_MM_S2 * STEPS_PER_MM_X);
   stepY.setMaxSpeed(MAX_FEED_MM_S * STEPS_PER_MM_Y);

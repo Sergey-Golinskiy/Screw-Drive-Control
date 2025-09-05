@@ -254,7 +254,7 @@ class WorkTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnPedal = big_button("Tighten the screws (pedal emulation)")
         self.btnKill  = big_button("STOP script")
-        self.btnStop.setObjectName("stopButton")
+        self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 

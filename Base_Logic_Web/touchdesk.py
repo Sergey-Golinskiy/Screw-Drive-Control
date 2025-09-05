@@ -316,9 +316,15 @@ class WorkTab(QWidget):
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Статус: " + ("EXTERNAL RUNNING" if running else "STOPPED"))
-        # Подсветим «актуальную» кнопку
-        self.btnPedal.setProperty("ok", False)
+
+        # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
+        busy = bool(st.get("cycle_busy"))
+        # когда busy=True — делаем кнопку зелёной
+        self.btnPedal.setProperty("ok", busy)
+
+        # актуальность «Стоп скрипта» как раньше
         self.btnKill.setProperty("ok", running)
+
         for w in (self.btnPedal, self.btnKill):
             w.style().unpolish(w); w.style().polish(w)
 

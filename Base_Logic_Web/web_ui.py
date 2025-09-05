@@ -16,6 +16,8 @@ from flask import Flask, request, jsonify, Response
 
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 
+BUSY_FLAG = "/tmp/screw_cycle_busy"
+
 # ---------------------- Инициализация ----------------------
 app = Flask(__name__)
 
@@ -141,6 +143,7 @@ def build_status():
         "relay_names": list(RELAY_PINS.keys()),
         "sensor_names": list(SENSOR_PINS.keys()),
         "external_running": external,
+        "cycle_busy": os.path.exists(BUSY_FLAG),
     }
 
 # ---------------------- API ----------------------

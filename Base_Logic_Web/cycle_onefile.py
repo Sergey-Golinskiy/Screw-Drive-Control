@@ -6,6 +6,9 @@ TRIGGER_PORT = 8765
 import time
 import threading
 from datetime import datetime
+import os
+from pathlib import Path
+
 
 from typing import Optional
 import RPi.GPIO as GPIO
@@ -24,6 +27,7 @@ except Exception:
     socket = None
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
+BUSY_FLAG = "/tmp/screw_cycle_busy"
 
 # Реле (BCM): подгони под свою распиновку при необходимости
 RELAY_PINS = {
@@ -75,6 +79,18 @@ SERIAL_PORT = "/dev/ttyACM0"
 SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
+
+def set_cycle_busy(on: bool):
+    try:
+        if on:
+            Path(BUSY_FLAG).write_text("1")
+        else:
+            try:
+                os.remove(BUSY_FLAG)
+            except FileNotFoundError:
+                pass
+    except Exception:
+        pass
 
 def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
     try:
@@ -469,11 +485,18 @@ def main():
 
         # ---------- Основной цикл: п.7..29 ----------
         while True:
-            
+            print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
+            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
+            if not wait_pedal_or_command(io, trg):
+                break
+
             # 7. Ждём нажатия педальки
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
             if not wait_pedal_or_command(io, trg):
                 break
+
+
+            set_cycle_busy(True)
 
             # --- Точка 1: X35 Y155 (пп.8–14) ---
             x, y = POINTS[0]
@@ -509,6 +532,8 @@ def main():
 
 
             move_xy(ser, 35, 20, MOVE_F)
+
+            set_cycle_busy(False)
 
             # 29. Повторяем с пункта 7 — просто продолжаем while True
 

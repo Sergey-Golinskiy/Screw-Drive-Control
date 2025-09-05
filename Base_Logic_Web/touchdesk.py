@@ -10,10 +10,10 @@ import requests
 
 from functools import partial
 
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal as Signal
-from PyQt5.QtGui import QFont
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import (
+from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, pyqtSignal as Signal
+from PyQt5.QtGui import QFont # type: ignore
+from PyQt5.QtGui import QPixmap # type: ignore
+from PyQt5.QtWidgets import ( # type: ignore
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
     QTextEdit, QSpinBox, QSizePolicy, QInputDialog
@@ -275,7 +275,7 @@ class WorkTab(QWidget):
 
             if not running:
                 self.stateLabel.setText(
-                "The script is not running. First, click "Start program" on the "Start" tab."
+                'The script is not running. First, click "Start program" on the "Start" tab.'
                 )
                 return
 
@@ -346,7 +346,7 @@ class VirtualKeyboard(QFrame):
             list("QWERTYUIOP"),
             list("ASDFGHJKL"),
             list("ZXCVBNM"),
-]
+        ]
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         r = 0
         for row in rows:
@@ -409,7 +409,7 @@ class VirtualKeyboard(QFrame):
         self.raise_()                  # на самый верх
 
 
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel # type: ignore
 
 class PasswordDialog(QDialog):
     def __init__(self, parent=None):
@@ -489,9 +489,9 @@ class PasswordDialog(QDialog):
 
     def eventFilter(self, obj, event):
         if obj is self.edit:
-            if event.type() == event.FocusIn:
+            if event.type() == QEvent.FocusIn:
                 self.vkbd.show_for(self.edit, self)
-            elif event.type() == event.FocusOut:
+            elif event.type() == QEvent.FocusOut:
                 self.vkbd.hide()
         return super().eventFilter(obj, event)
 
@@ -546,7 +546,7 @@ class ServiceTab(QWidget):
         self.btnSend = QPushButton("Send")
         send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
         sc.addLayout(send)
-# экранная клавиатура
+
         self.vkeyboard = VirtualKeyboard(self)
         self.vkeyboard.on_enter = self.send_serial
         self.edSend.installEventFilter(self)
@@ -672,10 +672,10 @@ class ServiceTab(QWidget):
     
     def eventFilter(self, obj, event):
         if obj is self.edSend:
-            if event.type() == event.FocusIn:
-                self.vkeyboard.show_for(self.edSend, self.window())
-            elif event.type() == event.FocusOut:
-                self.vkeyboard.hide()
+            if event.type() == QEvent.FocusIn:
+                self.vkbd.show_for(self.edit, self)
+            elif event.type() == QEvent.FocusOut:
+                self.vkbd.hide()
         return super().eventFilter(obj, event)
 
 
@@ -705,7 +705,7 @@ class StartTab(QWidget):
             self.api.ext_start()  # только стартуем процесс (как в веб UI /api/ext/start)
             # покажем подсказку оператору
             self.stateLabel.setText(
-                "The program is running. To begin working, click "START" on the Work tab."
+                'The program is running. To begin working, click "START" on the Work tab.'
             )
             # дальше переключать вкладку НЕ будем — авто-переброс на Work произойдёт,
             # когда external_running станет True (логика уже есть в refresh()).
@@ -957,7 +957,7 @@ QTextEdit {{ background: #0f141c; color: #d3ddf0; border: 1px solid #334157; bor
 
 def main():
     app = QApplication(sys.argv)
-    from PyQt5.QtGui import QCursor
+    from PyQt5.QtGui import QCursor # type: ignore
     # Инициализируем GPIO педали (если библиотека доступна) 
     try:
         gpio_pedal_init()

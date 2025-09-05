@@ -817,10 +817,46 @@ class MainWindow(QMainWindow):
         any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
         if running:
-            self.set_border("ok")
+            try:
+                st = self.api.status()
+            except Exception:
+                self.set_border("alarm")
+                return
+
+            # обновление вкладок
+            self.tabWork.render(st)
+            self.tabStart.render(st)
+            self.tabService.render(st)
+
+            # ----------------------------
+            # логика рамки
+            # ----------------------------
+            sensors = st.get("sensors", {}) or {}
+            any_alarm = any(
+                re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and bool(v)
+                for k, v in sensors.items()
+            )
+
+            cycle_active = bool(
+                st.get("cycle_busy") or
+                st.get("cycle_active") or
+                any(
+                    re.search(r"(pedal|emul|start_btn|cycle_running)", k, re.I) and bool(v)
+                    for k, v in sensors.items()
+                )
+            )
+
+            if any_alarm:
+                self.set_border("alarm")   # красная
+            elif cycle_active:
+                self.set_border("ok")      # зелёная
+            else:
+                self.set_border("idle")    # жёлтая
+
 
             # если только что перешли в RUNNING — СНАЧАЛА переключимся на Work,
             # а уже потом отключим вкладки, чтобы Qt не дёргал текущий индекс
+            running = bool(st.get("external_running"))
             if not self._was_running and self.tabs.currentIndex() != 0:
                 self.tabs.blockSignals(True)              # чтобы не срабатывал check_service_tab
                 self.tabs.setCurrentIndex(0)
@@ -833,7 +869,6 @@ class MainWindow(QMainWindow):
         else:
             self.tabs.setTabEnabled(1, True)
             self.tabs.setTabEnabled(2, True)
-            self.set_border("alarm" if any_alarm else "idle")
 
         self._was_running = running
 

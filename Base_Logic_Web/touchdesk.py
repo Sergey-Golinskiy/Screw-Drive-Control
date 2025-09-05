@@ -949,7 +949,7 @@ QTabBar::tab:selected {{ background: #242a36; color: white; }}
     background: #2b3342; color: #e8edf8; border: 2px solid #3a4356; border-radius: 18px;
 }}
 #bigButton[ok="true"]  {{ background: #153f2c; border-color: #1ac06b; color: #e9ffee; }}
-#stopButton[ok="true"] {{ font-size: 32px; font-weight: 700; background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
+#stopButton {{ font-size: 32px; font-weight: 700; background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
 
 #bigButton:pressed     {{ background: #354159; }}
 

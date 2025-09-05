@@ -811,12 +811,18 @@ class MainWindow(QMainWindow):
 
         if running:
             self.set_border("ok")
-            # блокируем Старт и Service
+
+            # если только что перешли в RUNNING — СНАЧАЛА переключимся на Work,
+            # а уже потом отключим вкладки, чтобы Qt не дёргал текущий индекс
+            if not self._was_running and self.tabs.currentIndex() != 0:
+                self.tabs.blockSignals(True)              # чтобы не срабатывал check_service_tab
+                self.tabs.setCurrentIndex(0)
+                self.tabs.blockSignals(False)
+
+            # теперь блокируем Старт и Service
             self.tabs.setTabEnabled(1, False)
             self.tabs.setTabEnabled(2, False)
-            # если только что перешли в RUNNING — уйти на Work
-            if not self._was_running and self.tabs.currentIndex() != 0:
-                self.tabs.setCurrentIndex(0)
+
         else:
             self.tabs.setTabEnabled(1, True)
             self.tabs.setTabEnabled(2, True)
@@ -827,10 +833,20 @@ class MainWindow(QMainWindow):
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):
         if idx == 2:
+            # если вкладка Service отключена (при external_running=True) — тихо откатиться на Work
+            if not self.tabs.isTabEnabled(2):
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(0)
+                self.tabs.blockSignals(False)
+                return
+
             dlg = PasswordDialog(self)
             pw = dlg.get_password()
             if pw != "1234":
+                self.tabs.blockSignals(True)
                 self.tabs.setCurrentIndex(0)
+                self.tabs.blockSignals(False)
+
 
 
     # Абсолютное позиционирование логотипа

@@ -845,7 +845,7 @@ class MainWindow(QMainWindow):
             self.set_border("idle")    # жёлтая, ожидание
 
 
-        self._was_running = running
+        #self._was_running = running
 
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):

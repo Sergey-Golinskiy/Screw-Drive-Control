@@ -804,48 +804,38 @@ class MainWindow(QMainWindow):
         try:
             st = self.api.status()
         except Exception:
-            # нет связи — красная рамка
             self.set_border("alarm")
             return
 
-        # обновляем вкладки
+        # обновление вкладок
         self.tabWork.render(st)
+        self.tabStart.render(st)
         self.tabService.render(st)
 
-        # 1) аварии (имя сенсора содержит alarm/emerg/fault/error/e_stop и True)
-        sensors = st.get("sensors", {}) or {}
-        any_alarm = any(
-            re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and bool(v)
-            for k, v in sensors.items()
-        )
+        running = bool(st.get("external_running"))
+        sensors = st.get("sensors", {})
+        any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
-        # 2) активный цикл: берём явные флаги ИЛИ выводим из сенсоров (pedal/emulator/start_btn/…)
-        cycle_active = bool(
-            st.get("cycle_active") or
-            st.get("program_active") or
-            st.get("cycleRunning") or
-            st.get("emulator_active") or
-            st.get("emulator_running") or
-            any(
-                re.search(r"(pedal(_pressed)?|emul(ator)?(_btn)?|start_btn|cycle_running)", k, re.I) and bool(v)
-                for k, v in sensors.items()
-            )
-        )
+        if running:
+            self.set_border("ok")
 
-        # 3) external_running — только для блокировки Service (как раньше)
-        external = bool(st.get("external_running"))
-        self.tabs.setTabEnabled(1, not external)
+            # если только что перешли в RUNNING — СНАЧАЛА переключимся на Work,
+            # а уже потом отключим вкладки, чтобы Qt не дёргал текущий индекс
+            if not self._was_running and self.tabs.currentIndex() != 0:
+                self.tabs.blockSignals(True)              # чтобы не срабатывал check_service_tab
+                self.tabs.setCurrentIndex(0)
+                self.tabs.blockSignals(False)
 
-        # 4) раскраска рамки по приоритету: ALARM (красный) > ACTIVE (зелёный) > IDLE (жёлтый)
-        if any_alarm:
-            self.set_border("alarm")
-        elif cycle_active:
-            self.set_border("ok")      # зелёная, пока идёт цикл
+            # теперь блокируем Старт и Service
+            self.tabs.setTabEnabled(1, False)
+            self.tabs.setTabEnabled(2, False)
+
         else:
-            self.set_border("idle")    # жёлтая, ожидание
+            self.tabs.setTabEnabled(1, True)
+            self.tabs.setTabEnabled(2, True)
+            self.set_border("alarm" if any_alarm else "idle")
 
-
-        #self._was_running = running
+        self._was_running = running
 
     # Пароль на вкладку Service
     def check_service_tab(self, idx: int):
@@ -924,7 +914,8 @@ QTabBar::tab:selected {{ background: #242a36; color: white; }}
     background: #2b3342; color: #e8edf8; border: 2px solid #3a4356; border-radius: 18px;
 }}
 #bigButton[ok="true"]  {{ background: #153f2c; border-color: #1ac06b; color: #e9ffee; }}
-#stopButton[ok="true"] {{ font-size: 32px; font-weight: 700;background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
+#stopButton[ok="true"] {{ font-size: 32px; font-weight: 700; background: #3a1c1c; border-color: #e5484d; color: #ffe9e9; }}
+
 #bigButton:pressed     {{ background: #354159; }}
 
 #badge {{

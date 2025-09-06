@@ -501,7 +501,9 @@ def main():
             # --- Точка 1: X35 Y155 (пп.8–14) ---
             x, y = POINTS[0]
             move_xy(ser, x, y, MOVE_F)               # 8
-            set_cycle_busy(False)                     # 9 + 10
+            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
+            if not wait_pedal_or_command(io, trg):
+                break                   # 9 + 10
             if not torque_sequence(io):              # 11–14 (с free-run)
                 # При таймауте по моменту возвращаемся к ожиданию педали
                 move_xy(ser, 35, 20, MOVE_F)
@@ -511,10 +513,9 @@ def main():
             x, y = POINTS[1]
             move_xy(ser, x, y, MOVE_F)               # 15
             # Подача и контроль IND_SCRW
-            set_cycle_busy(False)
-            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 17
-                # если нет импульса — повторяем подачу (логика п.10 говорит «делаем ещё раз пункт 9»)
-                set_cycle_busy(False)
+            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
+            if not wait_pedal_or_command(io, trg):
+                break
             if not torque_sequence(io):              # 18–21
                 move_xy(ser, 35, 20, MOVE_F)
                 return

@@ -69,9 +69,9 @@ MOVE_F = 30000                    # скорость G-команд
 
 # Точки для трёх подач (п.8, п.15, п.22)
 POINTS = [
-    (10.5, 109),
-    (58.5, 109),
-    #(54, 123),
+    (35, 153),
+    (15, 123),
+    (54, 123),
 ]
 
 # Серийный порт
@@ -491,9 +491,9 @@ def main():
                 break
 
             # 7. Ждём нажатия педальки
-            #print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
-            #if not wait_pedal_or_command(io, trg):
-            #    break
+            print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
+            if not wait_pedal_or_command(io, trg):
+                break
 
 
             set_cycle_busy(True)
@@ -501,9 +501,7 @@ def main():
             # --- Точка 1: X35 Y155 (пп.8–14) ---
             x, y = POINTS[0]
             move_xy(ser, x, y, MOVE_F)               # 8
-            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
-            if not wait_pedal_or_command(io, trg):
-                break                   # 9 + 10
+            feed_until_detect(io)                     # 9 + 10
             if not torque_sequence(io):              # 11–14 (с free-run)
                 # При таймауте по моменту возвращаемся к ожиданию педали
                 move_xy(ser, 35, 20, MOVE_F)
@@ -513,10 +511,22 @@ def main():
             x, y = POINTS[1]
             move_xy(ser, x, y, MOVE_F)               # 15
             # Подача и контроль IND_SCRW
-            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
-            if not wait_pedal_or_command(io, trg):
-                break
+            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 16
+            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 17
+                # если нет импульса — повторяем подачу (логика п.10 говорит «делаем ещё раз пункт 9»)
+                feed_until_detect(io)
             if not torque_sequence(io):              # 18–21
+                move_xy(ser, 35, 20, MOVE_F)
+                return
+
+            # --- Точка 3: X54 Y123 (пп.22–28) ---
+            x, y = POINTS[2]
+            move_xy(ser, x, y, MOVE_F)               # 22
+            # Подача и контроль IND_SCRW
+            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 23
+            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
+                feed_until_detect(io)                # повторяем п.9 до успеха
+            if not torque_sequence(io):              # 25–28
                 move_xy(ser, 35, 20, MOVE_F)
                 return
 
